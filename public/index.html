@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KeySwarm</title>
+<title>HiveKey</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231a1a19'/%3E%3Ccircle cx='12' cy='12' r='5.5' fill='%233987e5'/%3E%3Ccircle cx='12' cy='12' r='2.2' fill='%230d0d0d'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -14,19 +14,25 @@
   <form id="login-form" class="login-card" autocomplete="on">
     <div class="login-brand">
       <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#2a78d6"/><circle cx="12" cy="12" r="5.5" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#2a78d6"/></svg>
-      <h1>KeySwarm</h1>
+      <h1>HiveKey</h1>
     </div>
-    <p class="login-sub">Admin console — sign in to continue</p>
+    <p class="login-sub" data-i18n="Admin console — sign in to continue">Admin console — sign in to continue</p>
     <div class="field">
-      <label for="login-username">Username</label>
+      <label for="login-username" data-i18n="Username">Username</label>
       <input id="login-username" name="username" autocomplete="username" required autofocus>
     </div>
     <div class="field">
-      <label for="login-password">Password</label>
+      <label for="login-password" data-i18n="Password">Password</label>
       <input id="login-password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button type="submit" class="btn btn-primary" id="login-btn">Sign in</button>
+    <button type="submit" class="btn btn-primary" id="login-btn" data-i18n="Sign in">Sign in</button>
     <div id="login-error" class="login-error hidden"></div>
+    <div class="login-lang">
+      <select data-lang-sel aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh-CN">中文</option>
+      </select>
+    </div>
   </form>
 </div>
 
@@ -35,36 +41,40 @@
   <aside id="sidebar">
     <div class="brand">
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#2a78d6"/><circle cx="12" cy="12" r="5.5" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#2a78d6"/></svg>
-      <span class="brand-name">KeySwarm</span>
+      <span class="brand-name">HiveKey</span>
     </div>
     <nav id="nav">
-      <a href="#/dashboard" data-route="dashboard" title="Dashboard">
+      <a href="#/dashboard" data-route="dashboard" data-i18n-title="Dashboard" title="Dashboard">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
-        <span class="lbl">Dashboard</span>
+        <span class="lbl" data-i18n="Dashboard">Dashboard</span>
       </a>
-      <a href="#/channels" data-route="channels" title="Channels">
+      <a href="#/channels" data-route="channels" data-i18n-title="Channels" title="Channels">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M6.6 7.5h.01M6.6 16.5h.01"/></svg>
-        <span class="lbl">Channels</span>
+        <span class="lbl" data-i18n="Channels">Channels</span>
       </a>
-      <a href="#/tokens" data-route="tokens" title="Access tokens">
+      <a href="#/tokens" data-route="tokens" data-i18n-title="Tokens" title="Access tokens">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4.2"/><path d="M12.2 12H21M17.5 12v3.2M20.9 12v2.2"/></svg>
-        <span class="lbl">Tokens</span>
+        <span class="lbl" data-i18n="Tokens">Tokens</span>
       </a>
-      <a href="#/logs" data-route="logs" title="Logs">
+      <a href="#/logs" data-route="logs" data-i18n-title="Logs" title="Logs">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h.01M4 12h.01M4 18h.01M8.5 6H20M8.5 12H20M8.5 18H20"/></svg>
-        <span class="lbl">Logs</span>
+        <span class="lbl" data-i18n="Logs">Logs</span>
       </a>
-      <a href="#/settings" data-route="settings" title="Settings">
+      <a href="#/settings" data-route="settings" data-i18n-title="Settings" title="Settings">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h7.5M17.5 7.5H20M4 16.5h2.5M12.5 16.5H20"/><circle cx="14.5" cy="7.5" r="2.2"/><circle cx="9.5" cy="16.5" r="2.2"/></svg>
-        <span class="lbl">Settings</span>
+        <span class="lbl" data-i18n="Settings">Settings</span>
       </a>
     </nav>
     <div class="sidebar-foot">
       <div id="conn-status"><span class="conn-dot"></span><span class="conn-text">Disconnected</span></div>
       <div id="whoami"></div>
+      <select class="lang-sel" data-lang-sel aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh-CN">中文</option>
+      </select>
       <button id="logout-btn" class="btn btn-sm" data-action="logout" type="button">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4M9 12h10"/></svg>
-        Logout
+        <span data-i18n="Logout">Logout</span>
       </button>
     </div>
   </aside>
@@ -76,6 +86,7 @@
 <div id="modal-root" class="hidden"></div>
 <div id="toast-root"></div>
 
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

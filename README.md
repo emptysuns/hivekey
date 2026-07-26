@@ -14,13 +14,14 @@ your app ──▶ http://pool:3000/v1  ──▶ scheduler ──▶ key #17 �
 
 - **One URL, many keys** — expose a single OpenAI-compatible `/v1` endpoint backed by any number of upstream API keys, batch-imported one per line.
 - **Automatic retry & failover** — on 429 / 5xx / network errors the request is transparently retried with a different key. `Retry-After` is honored, rate-limited keys go into exponential-backoff cooldown, keys that return 401 twice are auto-disabled.
-- **Six scheduling strategies** — `adaptive` (composite score of success rate × latency × load), `round_robin`, `random`, `weighted`, `least_inflight`, `lowest_latency`.
+- **Six scheduling strategies** — smart `adaptive` by default (composite score of success rate × latency × load), plus `round_robin`, `random`, `weighted`, `least_inflight`, `lowest_latency` — switchable live from the Settings page.
 - **Channels with priority tiers** — group keys into channels (one base URL each) with priority failover, per-channel weight, model whitelists and model-name remapping.
 - **Real-time dashboard** — live in-flight request table, per-minute traffic chart, per-key health/latency/429 stats and cooldown countdowns, pushed over SSE.
 - **Full web management** — add channels, batch-import keys, enable/disable/test/reset keys, issue client access tokens, tune every scheduler knob — all from the browser, secured by an admin login from env vars.
 - **Proxy support** — per-channel outbound HTTP(S) proxy, plus a global fallback (`OUTBOUND_PROXY`).
 - **Streaming & usage aware** — SSE responses stream straight through; token usage is extracted from both JSON and streaming responses for stats.
 - **Zero-database** — state lives in one JSON file; deploy with Docker in a minute.
+- **Bilingual dashboard (i18n)** — English and 简体中文, auto-detected from the browser with a one-click switcher.
 
 ## Quick start
 

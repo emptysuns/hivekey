@@ -164,6 +164,15 @@ h3 { font-size: 14px; }
 
 #whoami { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.lang-sel {
+  font-size: 12px;
+  padding: 3px 6px;
+  width: 100%;
+}
+
+.login-lang { margin-top: 14px; text-align: center; }
+.login-lang select { font-size: 12px; padding: 3px 8px; width: auto; }
+
 /* ---------- main area ---------- */
 
 #main { flex: 1; overflow-y: auto; padding: 22px 26px 60px; min-width: 0; }
@@ -609,6 +618,7 @@ input[type="checkbox"] { width: auto; accent-color: var(--accent); cursor: point
   }
 
   #conn-status .conn-text, #whoami { display: none; }
+  .lang-sel { width: auto; }
 
   #main { padding: 14px 12px 40px; }
   .form-grid { grid-template-columns: 1fr; }

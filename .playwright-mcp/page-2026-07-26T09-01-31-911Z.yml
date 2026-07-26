@@ -1,0 +1,96 @@
+- generic [ref=e20]:
+  - complementary [ref=e21]:
+    - generic [ref=e22]: HiveKey
+    - navigation [ref=e28]:
+      - link "仪表盘" [ref=e29] [cursor=pointer]:
+        - /url: "#/dashboard"
+      - link "渠道" [ref=e36] [cursor=pointer]:
+        - /url: "#/channels"
+      - link "令牌" [ref=e42] [cursor=pointer]:
+        - /url: "#/tokens"
+      - link "日志" [ref=e47] [cursor=pointer]:
+        - /url: "#/logs"
+      - link "设置" [active] [ref=e51] [cursor=pointer]:
+        - /url: "#/settings"
+    - generic [ref=e57]:
+      - generic [ref=e58]: 已连接
+      - generic [ref=e61]: admin
+      - combobox "Language" [ref=e62] [cursor=pointer]:
+        - option "English"
+        - option "中文" [selected]
+      - button "退出登录" [ref=e63] [cursor=pointer]
+  - main [ref=e67]:
+    - generic [ref=e68]:
+      - heading "设置" [level=2] [ref=e177]
+      - generic [ref=e180]:
+        - generic [ref=e181]:
+          - generic [ref=e182]: 密钥调度策略
+          - combobox [ref=e183] [cursor=pointer]:
+            - option "智能（自适应）" [selected]
+            - option "轮询"
+            - option "随机"
+            - option "加权随机"
+            - option "最少并发"
+            - option "最低延迟"
+          - list [ref=e184]:
+            - listitem [ref=e185]:
+              - code [ref=e186]: 智能（自适应）
+              - text: — 根据延迟、错误率和负载给密钥打分并择优（推荐，默认）。
+            - listitem [ref=e187]:
+              - code [ref=e188]: 轮询
+              - text: — 按固定顺序轮流使用可用密钥。
+            - listitem [ref=e189]:
+              - code [ref=e190]: 随机
+              - text: — 完全随机选择一个可用密钥。
+            - listitem [ref=e191]:
+              - code [ref=e192]: 加权随机
+              - text: — 按渠道权重加权的随机选择。
+            - listitem [ref=e193]:
+              - code [ref=e194]: 最少并发
+              - text: — 优先选择进行中请求最少的密钥。
+            - listitem [ref=e195]:
+              - code [ref=e196]: 最低延迟
+              - text: — 优先选择近期平均延迟最低的密钥。
+        - generic [ref=e197]:
+          - generic [ref=e198]:
+            - generic [ref=e199]: 最大尝试次数
+            - spinbutton [ref=e200]: "3"
+            - generic [ref=e201]: 每个请求的总尝试次数（首次 + 重试）。
+          - generic [ref=e202]:
+            - generic [ref=e203]: 请求超时（毫秒）
+            - spinbutton [ref=e204]: "300000"
+            - generic [ref=e205]: 上游请求的总超时时间。
+          - generic [ref=e206]:
+            - generic [ref=e207]: 连接超时（毫秒）
+            - spinbutton [ref=e208]: "10000"
+            - generic [ref=e209]: 上游连接超时时间。
+          - generic [ref=e210]:
+            - generic [ref=e211]: 429 后冷却（毫秒）
+            - spinbutton [ref=e212]: "30000"
+            - generic [ref=e213]: 密钥被限流后的基础冷却时间。
+          - generic [ref=e214]:
+            - generic [ref=e215]: 错误后冷却（毫秒）
+            - spinbutton [ref=e216]: "5000"
+            - generic [ref=e217]: 其他上游错误后的基础冷却时间。
+          - generic [ref=e218]:
+            - generic [ref=e219]: 最大冷却（毫秒）
+            - spinbutton [ref=e220]: "900000"
+            - generic [ref=e221]: 指数冷却的上限。
+          - generic [ref=e222]:
+            - generic [ref=e223]: 连续失败后停用
+            - spinbutton [ref=e224]: "8"
+            - generic [ref=e225]: 连续失败达到该次数后自动停用密钥。
+          - generic [ref=e226]:
+            - generic [ref=e227]: 日志上限
+            - spinbutton [ref=e228]: "1000"
+            - generic [ref=e229]: 内存中保留的请求日志条数。
+          - generic [ref=e230]:
+            - generic [ref=e231]: 重试状态码 （逗号分隔）
+            - textbox "429, 500, 502, 503, 504" [ref=e232]: 429, 401, 403, 500, 502, 503, 504
+            - generic [ref=e233]: 返回这些状态码时会换一个密钥重试。
+          - generic [ref=e235] [cursor=pointer]:
+            - checkbox "允许匿名访问 /v1（无需访问令牌）" [ref=e236]
+            - text: 允许匿名访问 /v1（无需访问令牌）
+        - generic [ref=e237]:
+          - button "保存设置" [ref=e238] [cursor=pointer]
+          - generic [ref=e239]: 已保存 ✓

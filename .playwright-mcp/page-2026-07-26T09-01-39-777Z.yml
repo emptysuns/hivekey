@@ -1,0 +1,25 @@
+- generic [ref=e20]:
+  - complementary [ref=e21]:
+    - generic [ref=e22]: HiveKey
+    - navigation [ref=e28]:
+      - link "Dashboard" [ref=e240] [cursor=pointer]:
+        - /url: "#/dashboard"
+      - link "Channels" [ref=e241] [cursor=pointer]:
+        - /url: "#/channels"
+      - link "Tokens" [ref=e242] [cursor=pointer]:
+        - /url: "#/tokens"
+      - link "Logs" [ref=e243] [cursor=pointer]:
+        - /url: "#/logs"
+      - link "Settings" [active] [ref=e244] [cursor=pointer]:
+        - /url: "#/settings"
+    - generic [ref=e57]:
+      - generic [ref=e58]: Live
+      - generic [ref=e61]: admin
+      - combobox "Language" [ref=e62] [cursor=pointer]:
+        - option "English" [selected]
+        - option "中文"
+      - button "Logout" [ref=e245] [cursor=pointer]
+  - main [ref=e67]:
+    - generic [ref=e68]:
+      - heading "Settings" [level=2] [ref=e247]
+      - generic [ref=e248]: Loading…

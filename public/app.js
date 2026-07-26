@@ -50,12 +50,12 @@ function fmtDate(ts) {
 }
 
 function fmtAgo(ts) {
-  if (!ts) return 'never';
+  if (!ts) return t('never');
   const d = Date.now() - ts;
-  if (d < 5000) return 'just now';
-  if (d < 60000) return Math.floor(d / 1000) + ' s ago';
-  if (d < 3600000) return Math.floor(d / 60000) + ' m ago';
-  if (d < 86400000) return Math.floor(d / 3600000) + ' h ago';
+  if (d < 5000) return t('just now');
+  if (d < 60000) return t('{n}s ago', { n: Math.floor(d / 1000) });
+  if (d < 3600000) return t('{n}m ago', { n: Math.floor(d / 60000) });
+  if (d < 86400000) return t('{n}h ago', { n: Math.floor(d / 3600000) });
   return new Date(ts).toLocaleDateString();
 }
 
@@ -121,7 +121,7 @@ async function api(path, opts) {
   try {
     res = await fetch(path, init);
   } catch (e) {
-    throw new Error('Network error — is the server running?');
+    throw new Error(t('Network error — is the server running?'));
   }
 
   if (res.status === 401 && !opts.noAuthHandler) onUnauthorized();
@@ -146,7 +146,7 @@ function toast(msg, type) {
   const root = $('#toast-root');
   const el = document.createElement('div');
   el.className = 'toast' + (type ? ' toast-' + type : '');
-  el.textContent = msg;
+  el.textContent = t(msg); // untranslated keys and server errors get localized; pre-translated strings pass through
   el.addEventListener('click', () => el.remove());
   root.appendChild(el);
   setTimeout(() => {
@@ -233,7 +233,7 @@ async function doLogin(form) {
     form.reset();
     enterApp(d.username, d.token);
   } catch (e) {
-    errBox.textContent = e.message;
+    errBox.textContent = t(e.message);
     errBox.classList.remove('hidden');
   } finally {
     btn.disabled = false;
@@ -309,7 +309,7 @@ function renderConnStatus() {
   const el = $('#conn-status');
   if (!el) return;
   el.classList.toggle('connected', store.sse.connected);
-  el.querySelector('.conn-text').textContent = store.sse.connected ? 'Live' : 'Disconnected';
+  el.querySelector('.conn-text').textContent = store.sse.connected ? t('Live') : t('Disconnected');
 }
 
 function handleSnapshot(d) {
@@ -412,29 +412,29 @@ function clearDashTimer() {
 
 async function renderDashboard() {
   $('#view').innerHTML =
-    '<div class="view-head"><h2>Dashboard</h2><div class="sub" id="uptime-sub"></div></div>' +
+    '<div class="view-head"><h2>' + esc(t('Dashboard')) + '</h2><div class="sub" id="uptime-sub"></div></div>' +
     '<div class="stat-grid" id="stat-cards"></div>' +
     '<div class="card">' +
-      '<div class="card-head"><h3>Requests per minute</h3>' +
+      '<div class="card-head"><h3>' + esc(t('Requests per minute')) + '</h3>' +
       '<div class="legend">' +
-        '<span><span class="sw" style="background:var(--good)"></span>Success</span>' +
-        '<span><span class="sw" style="background:var(--crit)"></span>Failed</span>' +
+        '<span><span class="sw" style="background:var(--good)"></span>' + esc(t('Success')) + '</span>' +
+        '<span><span class="sw" style="background:var(--crit)"></span>' + esc(t('Failed')) + '</span>' +
       '</div></div>' +
       '<div class="chart-wrap"><canvas id="rpm-chart" height="220"></canvas>' +
       '<div class="chart-band hidden" id="chart-band"></div>' +
       '<div class="chart-tip hidden" id="chart-tip"></div></div>' +
     '</div>' +
     '<div class="card">' +
-      '<div class="card-head"><h3>Live requests <span class="muted small" id="live-count"></span></h3></div>' +
+      '<div class="card-head"><h3>' + esc(t('Live requests')) + ' <span class="muted small" id="live-count"></span></h3></div>' +
       '<div class="table-scroll"><table>' +
-        '<thead><tr><th>Started</th><th>Model</th><th>Channel</th><th>Key</th><th class="num">Attempts</th><th class="num">Elapsed</th></tr></thead>' +
+        '<thead><tr><th>' + esc(t('Started')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Elapsed')) + '</th></tr></thead>' +
         '<tbody id="live-tbody"></tbody>' +
       '</table></div>' +
     '</div>' +
     '<div class="card">' +
-      '<div class="card-head"><h3>Recent requests</h3></div>' +
+      '<div class="card-head"><h3>' + esc(t('Recent requests')) + '</h3></div>' +
       '<div class="table-scroll"><table>' +
-        '<thead><tr><th>Time</th><th>Status</th><th>Model</th><th>Channel</th><th>Key</th><th class="num">Attempts</th><th class="num">Latency</th></tr></thead>' +
+        '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th></tr></thead>' +
         '<tbody id="recent-tbody"></tbody>' +
       '</table></div>' +
     '</div>';
@@ -484,29 +484,29 @@ function renderDashStats() {
   const box = $('#stat-cards');
   if (!box) return;
   const ov = store.overview || {};
-  const t = ov.totals || {};
+  const tot = ov.totals || {};
   const kc = ov.keyCounts || {};
-  const tokens = (Number(t.promptTokens) || 0) + (Number(t.completionTokens) || 0);
+  const tokens = (Number(tot.promptTokens) || 0) + (Number(tot.completionTokens) || 0);
 
   box.innerHTML =
-    statTile('Total requests', fmtNum(t.requests || 0)) +
-    statTile('Success rate', pct(t.success || 0, t.requests || 0),
-      fmtNum(t.success || 0) + ' ok / ' + fmtNum(t.failed || 0) + ' failed') +
-    statTile('Requests / min', (ov.rpm != null ? Number(ov.rpm).toFixed(1) : '–')) +
-    statTile('Avg latency', fmtMs(ov.avgLatencyMs)) +
-    statTile('In flight', fmtNum(t.inflight || 0), fmtNum(t.retries || 0) + ' retries total') +
-    statTile('Tokens used', fmtNum(tokens),
-      fmtNum(t.promptTokens || 0) + ' prompt / ' + fmtNum(t.completionTokens || 0) + ' completion') +
-    '<div class="stat stat-keys"><div class="label">Keys</div><div class="value">' +
-      '<span class="kc ok-text">' + fmtNum(kc.active || 0) + ' <small>active</small></span>' +
-      '<span class="kc" style="color:var(--warn)">' + fmtNum(kc.cooldown || 0) + ' <small>cooldown</small></span>' +
-      '<span class="kc muted">' + fmtNum(kc.disabled || 0) + ' <small>disabled</small></span>' +
+    statTile(t('Total requests'), fmtNum(tot.requests || 0)) +
+    statTile(t('Success rate'), pct(tot.success || 0, tot.requests || 0),
+      t('{ok} ok / {failed} failed', { ok: fmtNum(tot.success || 0), failed: fmtNum(tot.failed || 0) })) +
+    statTile(t('Requests / min'), (ov.rpm != null ? Number(ov.rpm).toFixed(1) : '–')) +
+    statTile(t('Avg latency'), fmtMs(ov.avgLatencyMs)) +
+    statTile(t('In flight'), fmtNum(tot.inflight || 0), t('{n} retries total', { n: fmtNum(tot.retries || 0) })) +
+    statTile(t('Tokens used'), fmtNum(tokens),
+      t('{p} prompt / {c} completion', { p: fmtNum(tot.promptTokens || 0), c: fmtNum(tot.completionTokens || 0) })) +
+    '<div class="stat stat-keys"><div class="label">' + esc(t('Keys')) + '</div><div class="value">' +
+      '<span class="kc ok-text">' + fmtNum(kc.active || 0) + ' <small>' + esc(t('active')) + '</small></span>' +
+      '<span class="kc" style="color:var(--warn)">' + fmtNum(kc.cooldown || 0) + ' <small>' + esc(t('cooldown')) + '</small></span>' +
+      '<span class="kc muted">' + fmtNum(kc.disabled || 0) + ' <small>' + esc(t('disabled')) + '</small></span>' +
     '</div></div>';
 
   const up = $('#uptime-sub');
   if (up) {
-    up.textContent = 'Uptime ' + fmtUptime(ov.uptimeMs) +
-      (ov.channelCount != null ? ' · ' + ov.channelCount + ' channel' + (ov.channelCount === 1 ? '' : 's') : '');
+    up.textContent = t('Uptime {t}', { t: fmtUptime(ov.uptimeMs) }) +
+      (ov.channelCount != null ? ' · ' + t('{n} channels', { n: ov.channelCount }) : '');
   }
 }
 
@@ -578,7 +578,7 @@ function drawHistoryChart() {
   if (hist.length === 0) {
     ctx.fillStyle = cMuted;
     ctx.textAlign = 'center';
-    ctx.fillText('No traffic yet', padL + plotW / 2, padT + plotH / 2);
+    ctx.fillText(t('No traffic yet'), padL + plotW / 2, padT + plotH / 2);
     return;
   }
 
@@ -655,9 +655,9 @@ function wireChartHover() {
     const mm = String(d.getMinutes()).padStart(2, '0');
     tip.innerHTML =
       '<div class="tip-time">' + hh + ':' + mm + '</div>' +
-      '<div>' + fmtNum(b.requests || 0) + ' request' + ((b.requests || 0) === 1 ? '' : 's') + '</div>' +
-      '<div><span class="sw" style="background:var(--good);display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px"></span>' + fmtNum(b.success || 0) + ' success</div>' +
-      '<div><span class="sw" style="background:var(--crit);display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px"></span>' + fmtNum(b.failed || 0) + ' failed</div>';
+      '<div>' + esc(t('{n} requests', { n: fmtNum(b.requests || 0) })) + '</div>' +
+      '<div><span class="sw" style="background:var(--good);display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px"></span>' + esc(t('{n} success', { n: fmtNum(b.success || 0) })) + '</div>' +
+      '<div><span class="sw" style="background:var(--crit);display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px"></span>' + esc(t('{n} failed', { n: fmtNum(b.failed || 0) })) + '</div>';
     tip.classList.remove('hidden');
     band.classList.remove('hidden');
     band.style.left = slot.x0 + 'px';
@@ -687,7 +687,7 @@ function renderLiveTable() {
   const count = $('#live-count');
   if (count) count.textContent = items.length ? '(' + items.length + ')' : '';
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">No requests in flight.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">' + esc(t('No requests in flight.')) + '</td></tr>';
     return;
   }
   const now = Date.now();
@@ -708,7 +708,7 @@ function renderRecentTable() {
   const tbody = $('#recent-tbody');
   if (!tbody) return;
   if (!store.recent.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No finished requests yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(t('No finished requests yet.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.recent.map((en) => {
@@ -728,7 +728,7 @@ function statusBadgeHtml(en) {
   const ok = en.status === 'success';
   const label = (en.statusCode != null && en.statusCode !== 0)
     ? en.statusCode
-    : (ok ? 'ok' : 'error');
+    : (ok ? t('ok') : t('error'));
   return '<span class="badge ' + (ok ? 'badge-success' : 'badge-error') + '">' + esc(label) + '</span>';
 }
 
@@ -738,12 +738,12 @@ function statusBadgeHtml(en) {
 
 async function renderChannels() {
   $('#view').innerHTML =
-    '<div class="view-head"><h2>Channels</h2>' +
-    '<button class="btn btn-primary" data-action="channel-add">+ Add channel</button></div>' +
+    '<div class="view-head"><h2>' + esc(t('Channels')) + '</h2>' +
+    '<button class="btn btn-primary" data-action="channel-add">' + esc(t('+ Add channel')) + '</button></div>' +
     '<div class="card"><div class="table-scroll"><table>' +
-      '<thead><tr><th>Name</th><th>Base URL</th><th class="num">Priority</th><th class="num">Weight</th>' +
-      '<th class="num">Keys</th><th>Requests</th><th>Enabled</th><th>Actions</th></tr></thead>' +
-      '<tbody id="channels-tbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>' +
+      '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Base URL')) + '</th><th class="num">' + esc(t('Priority')) + '</th><th class="num">' + esc(t('Weight')) + '</th>' +
+      '<th class="num">' + esc(t('Keys')) + '</th><th>' + esc(t('Requests')) + '</th><th>' + esc(t('Enabled')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
+      '<tbody id="channels-tbody"><tr><td colspan="8" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
     '</table></div></div>';
 
   try {
@@ -754,7 +754,7 @@ async function renderChannels() {
     }
   } catch (e) {
     const tbody = $('#channels-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty">Failed to load channels.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('Failed to load channels.')) + '</td></tr>';
     toast(e.message, 'error');
   }
 }
@@ -767,7 +767,7 @@ function renderChannelsTable() {
   const tbody = $('#channels-tbody');
   if (!tbody) return;
   if (!store.channels.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty">No channels yet — add one to start routing requests.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('No channels yet — add one to start routing requests.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.channels.map((ch) => {
@@ -785,8 +785,8 @@ function renderChannelsTable() {
       '<td data-stop><label class="switch"><input type="checkbox" data-toggle="channel" data-id="' + esc(ch.id) + '"' +
         (ch.enabled ? ' checked' : '') + '><span class="sl"></span></label></td>' +
       '<td class="actions" data-stop>' +
-        '<button class="btn btn-sm" data-action="channel-edit" data-id="' + esc(ch.id) + '">Edit</button>' +
-        '<button class="btn btn-sm btn-danger" data-action="channel-delete" data-id="' + esc(ch.id) + '">Delete</button>' +
+        '<button class="btn btn-sm" data-action="channel-edit" data-id="' + esc(ch.id) + '">' + esc(t('Edit')) + '</button>' +
+        '<button class="btn btn-sm btn-danger" data-action="channel-delete" data-id="' + esc(ch.id) + '">' + esc(t('Delete')) + '</button>' +
       '</td></tr>';
     if (expanded) {
       html += '<tr><td colspan="8" class="nopad">' + keyPanelHtml(ch) + '</td></tr>';
@@ -802,23 +802,23 @@ function keyPanelHtml(ch) {
   const reveal = !!store.revealKeys[ch.id];
   return '<div class="key-panel">' +
     '<div class="key-toolbar">' +
-      '<strong>Keys — ' + esc(ch.name) + '</strong>' +
-      '<label class="checklab"><input type="checkbox" data-reveal data-id="' + esc(ch.id) + '"' + (reveal ? ' checked' : '') + '> Reveal keys</label>' +
+      '<strong>' + esc(t('Keys — {name}', { name: ch.name })) + '</strong>' +
+      '<label class="checklab"><input type="checkbox" data-reveal data-id="' + esc(ch.id) + '"' + (reveal ? ' checked' : '') + '> ' + esc(t('Reveal keys')) + '</label>' +
       '<span class="spacer"></span>' +
-      '<button class="btn btn-sm btn-danger" data-action="keys-delete-selected" data-id="' + esc(ch.id) + '" disabled>Delete selected</button>' +
+      '<button class="btn btn-sm btn-danger" data-action="keys-delete-selected" data-id="' + esc(ch.id) + '" disabled>' + esc(t('Delete selected')) + '</button>' +
     '</div>' +
     '<div class="table-scroll"><table>' +
       '<thead><tr>' +
         '<th style="width:28px"><input type="checkbox" data-keysel-all data-id="' + esc(ch.id) + '"></th>' +
-        '<th>Key</th><th>Status</th><th class="num">Req</th><th class="num">OK</th><th class="num">Fail</th>' +
-        '<th class="num">429</th><th class="num">Latency</th><th>Last error</th><th>Actions</th>' +
+        '<th>' + esc(t('Key')) + '</th><th>' + esc(t('Status')) + '</th><th class="num">' + esc(t('Req')) + '</th><th class="num">' + esc(t('OK')) + '</th><th class="num">' + esc(t('Fail')) + '</th>' +
+        '<th class="num">429</th><th class="num">' + esc(t('Latency')) + '</th><th>' + esc(t('Last error')) + '</th><th>' + esc(t('Actions')) + '</th>' +
       '</tr></thead>' +
       '<tbody id="keys-tbody-' + esc(ch.id) + '">' + keysRowsHtml(ch.id) + '</tbody>' +
     '</table></div>' +
     '<div class="key-import">' +
-      '<textarea id="import-keys-' + esc(ch.id) + '" rows="3" placeholder="sk-...&#10;sk-...&#10;(one key per line)"></textarea>' +
+      '<textarea id="import-keys-' + esc(ch.id) + '" rows="3" placeholder="sk-...&#10;sk-...&#10;' + esc(t('(one key per line)')) + '"></textarea>' +
       '<div class="side">' +
-        '<button class="btn" data-action="keys-import" data-id="' + esc(ch.id) + '">Import keys</button>' +
+        '<button class="btn" data-action="keys-import" data-id="' + esc(ch.id) + '">' + esc(t('Import keys')) + '</button>' +
         '<span class="hint" id="import-result-' + esc(ch.id) + '"></span>' +
       '</div>' +
     '</div>' +
@@ -828,10 +828,10 @@ function keyPanelHtml(ch) {
 function keysRowsHtml(chId) {
   const keys = store.keysByChannel[chId];
   if (keys === undefined) {
-    return '<tr><td colspan="10" class="empty">Loading keys…</td></tr>';
+    return '<tr><td colspan="10" class="empty">' + esc(t('Loading keys…')) + '</td></tr>';
   }
   if (!keys.length) {
-    return '<tr><td colspan="10" class="empty">No keys in this channel — import some below.</td></tr>';
+    return '<tr><td colspan="10" class="empty">' + esc(t('No keys in this channel — import some below.')) + '</td></tr>';
   }
   return keys.map((k) => {
     const st = k.stats || {};
@@ -847,22 +847,22 @@ function keysRowsHtml(chId) {
       '<td class="num">' + fmtMs(st.ewmaLatencyMs) + '</td>' +
       '<td class="err-cell" title="' + esc(st.lastError || '') + '">' + esc(truncate(st.lastError || '', 48)) + '</td>' +
       '<td class="actions" data-stop>' +
-        '<button class="btn btn-sm" data-action="key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + (k.enabled ? 'Disable' : 'Enable') + '</button>' +
-        '<button class="btn btn-sm" data-action="key-reset" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">Reset</button>' +
-        '<button class="btn btn-sm" data-action="key-test" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">Test</button>' +
-        '<button class="btn btn-sm btn-danger" data-action="key-delete" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">Delete</button>' +
+        '<button class="btn btn-sm" data-action="key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + esc(k.enabled ? t('Disable') : t('Enable')) + '</button>' +
+        '<button class="btn btn-sm" data-action="key-reset" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Reset')) + '</button>' +
+        '<button class="btn btn-sm" data-action="key-test" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Test')) + '</button>' +
+        '<button class="btn btn-sm btn-danger" data-action="key-delete" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Delete')) + '</button>' +
         '<span class="test-result" data-test-result="' + esc(k.id) + '"></span>' +
       '</td></tr>';
   }).join('');
 }
 
 function keyBadgeHtml(k) {
-  let cls = 'badge-disabled', label = 'disabled', attrs = '';
-  if (k.status === 'active') { cls = 'badge-active'; label = 'active'; }
+  let cls = 'badge-disabled', label = t('disabled'), attrs = '';
+  if (k.status === 'active') { cls = 'badge-active'; label = t('active'); }
   else if (k.status === 'cooldown') {
     cls = 'badge-cooldown';
     const remain = Math.max(0, Math.ceil(((Number(k.cooldownUntil) || 0) - Date.now()) / 1000));
-    label = 'cooldown · ' + remain + 's';
+    label = t('cooldown · {n}s', { n: remain });
     attrs = ' data-cooldown-until="' + esc(k.cooldownUntil || 0) + '"';
   }
   return '<span class="badge ' + cls + '" data-key-badge="' + esc(k.id) + '"' + attrs + '>' + esc(label) + '</span>';
@@ -903,7 +903,7 @@ function updateBatchBar() {
   if (btn) {
     const n = store.selectedKeys.size;
     btn.disabled = n === 0;
-    btn.textContent = n ? 'Delete selected (' + n + ')' : 'Delete selected';
+    btn.textContent = n ? t('Delete selected ({n})', { n: n }) : t('Delete selected');
   }
   const all = document.querySelector('[data-keysel-all]');
   if (all) {
@@ -921,36 +921,36 @@ function openChannelModal(ch) {
   const mappingJson = ch.modelMapping && Object.keys(ch.modelMapping).length
     ? JSON.stringify(ch.modelMapping, null, 2) : '';
   openModal(
-    '<h3>' + (isEdit ? 'Edit channel' : 'Add channel') + '</h3>' +
+    '<h3>' + esc(isEdit ? t('Edit channel') : t('Add channel')) + '</h3>' +
     '<form id="channel-form"' + (isEdit ? ' data-id="' + esc(ch.id) + '"' : '') + '>' +
       '<div class="form-grid">' +
-        '<div class="field span2"><label>Name</label>' +
+        '<div class="field span2"><label>' + esc(t('Name')) + '</label>' +
           '<input name="name" required value="' + esc(ch.name || '') + '" placeholder="OpenAI main"></div>' +
-        '<div class="field span2"><label>Base URL</label>' +
+        '<div class="field span2"><label>' + esc(t('Base URL')) + '</label>' +
           '<input name="baseUrl" required value="' + esc(ch.baseUrl || '') + '" placeholder="https://api.openai.com"></div>' +
-        '<div class="field span2"><label>Proxy <span class="muted">(optional, e.g. http://127.0.0.1:7890)</span></label>' +
+        '<div class="field span2"><label>' + esc(t('Proxy')) + ' <span class="muted">' + esc(t('(optional, e.g. http://127.0.0.1:7890)')) + '</span></label>' +
           '<input name="proxy" value="' + esc(ch.proxy || '') + '"></div>' +
-        '<div class="field"><label>Priority <span class="muted">(higher = preferred)</span></label>' +
+        '<div class="field"><label>' + esc(t('Priority')) + ' <span class="muted">' + esc(t('(higher = preferred)')) + '</span></label>' +
           '<input name="priority" type="number" step="1" value="' + esc(ch.priority != null ? ch.priority : 0) + '"></div>' +
-        '<div class="field"><label>Weight</label>' +
+        '<div class="field"><label>' + esc(t('Weight')) + '</label>' +
           '<input name="weight" type="number" step="1" min="0" value="' + esc(ch.weight != null ? ch.weight : 1) + '"></div>' +
-        '<div class="field span2"><label>Models <span class="muted">(comma-separated; empty = all)</span></label>' +
+        '<div class="field span2"><label>' + esc(t('Models')) + ' <span class="muted">' + esc(t('(comma-separated; empty = all)')) + '</span></label>' +
           '<input name="models" value="' + esc((ch.models || []).join(', ')) + '" placeholder="gpt-4o, gpt-4o-mini"></div>' +
-        '<div class="field span2"><label>Model mapping <span class="muted">(JSON, requested → upstream)</span></label>' +
+        '<div class="field span2"><label>' + esc(t('Model mapping')) + ' <span class="muted">' + esc(t('(JSON, requested → upstream)')) + '</span></label>' +
           '<textarea name="modelMapping" rows="3" placeholder=\'{"gpt-4o": "gpt-4o-2024-11-20"}\'>' + esc(mappingJson) + '</textarea></div>' +
-        '<div class="field"><label>Key header</label>' +
+        '<div class="field"><label>' + esc(t('Key header')) + '</label>' +
           '<input name="keyHeader" value="' + esc(ch.keyHeader != null ? ch.keyHeader : 'Authorization') + '"></div>' +
-        '<div class="field"><label>Key prefix</label>' +
+        '<div class="field"><label>' + esc(t('Key prefix')) + '</label>' +
           '<input name="keyPrefix" value="' + esc(ch.keyPrefix != null ? ch.keyPrefix : 'Bearer ') + '"></div>' +
         '<div class="field span2"><label class="checklab"><input type="checkbox" name="enabled"' +
-          ((isEdit ? ch.enabled : true) ? ' checked' : '') + '> Enabled</label></div>' +
+          ((isEdit ? ch.enabled : true) ? ' checked' : '') + '> ' + esc(t('Enabled')) + '</label></div>' +
         (isEdit ? '' :
-          '<div class="field span2"><label>API keys <span class="muted">(one per line, optional)</span></label>' +
+          '<div class="field span2"><label>' + esc(t('API keys')) + ' <span class="muted">' + esc(t('(one per line, optional)')) + '</span></label>' +
           '<textarea name="keys" rows="4" placeholder="sk-...&#10;sk-..."></textarea></div>') +
       '</div>' +
       '<div class="modal-actions">' +
-        '<button type="button" class="btn" data-action="modal-close">Cancel</button>' +
-        '<button type="submit" class="btn btn-primary">' + (isEdit ? 'Save changes' : 'Create channel') + '</button>' +
+        '<button type="button" class="btn" data-action="modal-close">' + esc(t('Cancel')) + '</button>' +
+        '<button type="submit" class="btn btn-primary">' + esc(isEdit ? t('Save changes') : t('Create channel')) + '</button>' +
       '</div>' +
     '</form>'
   );
@@ -1003,18 +1003,18 @@ async function submitChannelForm(form) {
 
 async function renderTokens() {
   $('#view').innerHTML =
-    '<div class="view-head"><h2>Access tokens</h2></div>' +
+    '<div class="view-head"><h2>' + esc(t('Access tokens')) + '</h2></div>' +
     '<div class="card">' +
       '<form id="token-create-form" class="inline-form">' +
-        '<input name="name" required placeholder="Token name (e.g. my-app)">' +
-        '<button type="submit" class="btn btn-primary">Create token</button>' +
+        '<input name="name" required placeholder="' + esc(t('Token name (e.g. my-app)')) + '">' +
+        '<button type="submit" class="btn btn-primary">' + esc(t('Create token')) + '</button>' +
       '</form>' +
-      '<p class="hint" style="margin:10px 0 0">Use this as the Bearer token when calling the pool’s /v1 endpoint.</p>' +
+      '<p class="hint" style="margin:10px 0 0">' + esc(t('Use this as the Bearer token when calling the pool’s /v1 endpoint.')) + '</p>' +
     '</div>' +
     '<div class="card"><div class="table-scroll"><table>' +
-      '<thead><tr><th>Name</th><th>Token</th><th>Enabled</th><th class="num">Requests</th>' +
-      '<th>Created</th><th>Last used</th><th>Actions</th></tr></thead>' +
-      '<tbody id="tokens-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>' +
+      '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Token')) + '</th><th>' + esc(t('Enabled')) + '</th><th class="num">' + esc(t('Requests')) + '</th>' +
+      '<th>' + esc(t('Created')) + '</th><th>' + esc(t('Last used')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
+      '<tbody id="tokens-tbody"><tr><td colspan="7" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
     '</table></div></div>';
 
   try {
@@ -1022,7 +1022,7 @@ async function renderTokens() {
     renderTokensTable();
   } catch (e) {
     const tbody = $('#tokens-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty">Failed to load tokens.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(t('Failed to load tokens.')) + '</td></tr>';
     toast(e.message, 'error');
   }
 }
@@ -1031,20 +1031,20 @@ function renderTokensTable() {
   const tbody = $('#tokens-tbody');
   if (!tbody) return;
   if (!store.tokens.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No access tokens yet — create one so clients can call /v1.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(t('No access tokens yet — create one so clients can call /v1.')) + '</td></tr>';
     return;
   }
-  tbody.innerHTML = store.tokens.map((t) => {
+  tbody.innerHTML = store.tokens.map((tk) => {
     return '<tr>' +
-      '<td><div class="cell-title">' + esc(t.name) + '</div></td>' +
-      '<td><span class="mono">' + esc(t.token) + '</span> ' +
-        '<button class="btn btn-sm" data-action="token-copy" data-token="' + esc(t.token) + '">Copy</button></td>' +
-      '<td><label class="switch"><input type="checkbox" data-toggle="token" data-id="' + esc(t.id) + '"' +
-        (t.enabled ? ' checked' : '') + '><span class="sl"></span></label></td>' +
-      '<td class="num">' + fmtNum(t.requests || 0) + '</td>' +
-      '<td class="muted small">' + esc(fmtDate(t.createdAt)) + '</td>' +
-      '<td class="muted small" data-ago-ts="' + esc(t.lastUsedAt || '') + '">' + esc(fmtAgo(t.lastUsedAt)) + '</td>' +
-      '<td class="actions"><button class="btn btn-sm btn-danger" data-action="token-delete" data-id="' + esc(t.id) + '">Delete</button></td>' +
+      '<td><div class="cell-title">' + esc(tk.name) + '</div></td>' +
+      '<td><span class="mono">' + esc(tk.token) + '</span> ' +
+        '<button class="btn btn-sm" data-action="token-copy" data-token="' + esc(tk.token) + '">' + esc(t('Copy')) + '</button></td>' +
+      '<td><label class="switch"><input type="checkbox" data-toggle="token" data-id="' + esc(tk.id) + '"' +
+        (tk.enabled ? ' checked' : '') + '><span class="sl"></span></label></td>' +
+      '<td class="num">' + fmtNum(tk.requests || 0) + '</td>' +
+      '<td class="muted small">' + esc(fmtDate(tk.createdAt)) + '</td>' +
+      '<td class="muted small" data-ago-ts="' + esc(tk.lastUsedAt || '') + '">' + esc(fmtAgo(tk.lastUsedAt)) + '</td>' +
+      '<td class="actions"><button class="btn btn-sm btn-danger" data-action="token-delete" data-id="' + esc(tk.id) + '">' + esc(t('Delete')) + '</button></td>' +
       '</tr>';
   }).join('');
 }
@@ -1078,27 +1078,27 @@ async function copyText(text) {
 async function renderLogs() {
   const f = store.logFilters;
   $('#view').innerHTML =
-    '<div class="view-head"><h2>Request logs</h2></div>' +
+    '<div class="view-head"><h2>' + esc(t('Request logs')) + '</h2></div>' +
     '<div class="card">' +
       '<form id="logs-filter" class="filters">' +
-        '<input type="search" name="q" placeholder="Search model, path, key, error…" value="' + esc(f.q) + '">' +
-        '<select name="channelId" id="logs-channel-sel"><option value="">All channels</option></select>' +
+        '<input type="search" name="q" placeholder="' + esc(t('Search model, path, key, error…')) + '" value="' + esc(f.q) + '">' +
+        '<select name="channelId" id="logs-channel-sel"><option value="">' + esc(t('All channels')) + '</option></select>' +
         '<select name="status">' +
-          '<option value="">All statuses</option>' +
-          '<option value="success"' + (f.status === 'success' ? ' selected' : '') + '>Success</option>' +
-          '<option value="error"' + (f.status === 'error' ? ' selected' : '') + '>Error</option>' +
+          '<option value="">' + esc(t('All statuses')) + '</option>' +
+          '<option value="success"' + (f.status === 'success' ? ' selected' : '') + '>' + esc(t('Success')) + '</option>' +
+          '<option value="error"' + (f.status === 'error' ? ' selected' : '') + '>' + esc(t('Error')) + '</option>' +
         '</select>' +
         '<select name="limit">' +
           [50, 100, 200, 500].map((n) =>
-            '<option value="' + n + '"' + (Number(f.limit) === n ? ' selected' : '') + '>' + n + ' rows</option>').join('') +
+            '<option value="' + n + '"' + (Number(f.limit) === n ? ' selected' : '') + '>' + esc(t('{n} rows', { n: n })) + '</option>').join('') +
         '</select>' +
-        '<button type="button" class="btn" data-action="logs-refresh">Refresh</button>' +
+        '<button type="button" class="btn" data-action="logs-refresh">' + esc(t('Refresh')) + '</button>' +
       '</form>' +
     '</div>' +
     '<div class="card"><div class="table-scroll"><table>' +
-      '<thead><tr><th>Time</th><th>Status</th><th>Model</th><th>Path</th><th>Channel</th><th>Key</th>' +
-      '<th class="num">Attempts</th><th class="num">Latency</th><th class="num">Tokens</th></tr></thead>' +
-      '<tbody id="logs-tbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>' +
+      '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Path')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th>' +
+      '<th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th><th class="num">' + esc(t('Tokens used')) + '</th></tr></thead>' +
+      '<tbody id="logs-tbody"><tr><td colspan="9" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
     '</table></div></div>';
 
   // Channel dropdown needs channel names.
@@ -1107,7 +1107,7 @@ async function renderLogs() {
   } catch (e) { /* dropdown just stays empty */ }
   const sel = $('#logs-channel-sel');
   if (sel) {
-    sel.innerHTML = '<option value="">All channels</option>' + store.channels.map((ch) =>
+    sel.innerHTML = '<option value="">' + esc(t('All channels')) + '</option>' + store.channels.map((ch) =>
       '<option value="' + esc(ch.id) + '"' + (f.channelId === ch.id ? ' selected' : '') + '>' + esc(ch.name) + '</option>'
     ).join('');
   }
@@ -1127,7 +1127,7 @@ async function fetchLogs() {
     renderLogsTable();
   } catch (e) {
     const tbody = $('#logs-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty">Failed to load logs.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('Failed to load logs.')) + '</td></tr>';
     toast(e.message, 'error');
   }
 }
@@ -1160,7 +1160,7 @@ function renderLogsTable() {
   const tbody = $('#logs-tbody');
   if (!tbody) return;
   if (!store.logs.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">No log entries match.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('No log entries match.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.logs.map((en) => {
@@ -1185,20 +1185,20 @@ function renderLogsTable() {
 }
 
 function logDetailHtml(en) {
-  let html = '<div><span class="muted">Request:</span> <span class="mono">' +
+  let html = '<div><span class="muted">' + esc(t('Request:')) + '</span> <span class="mono">' +
     esc(en.method || 'POST') + ' ' + esc(en.path || '') + '</span>' +
-    (en.stream ? ' <span class="badge badge-neutral">stream</span>' : '') +
+    (en.stream ? ' <span class="badge badge-neutral">' + esc(t('stream')) + '</span>' : '') +
     ' <span class="muted">· id ' + esc(en.id) + '</span></div>';
-  html += '<div><span class="muted">Tokens:</span> ' + fmtNum(en.promptTokens || 0) +
-    ' prompt / ' + fmtNum(en.completionTokens || 0) + ' completion</div>';
+  html += '<div><span class="muted">' + esc(t('Tokens:')) + '</span> ' +
+    esc(t('{p} prompt / {c} completion', { p: fmtNum(en.promptTokens || 0), c: fmtNum(en.completionTokens || 0) })) + '</div>';
   if (en.error) {
-    html += '<div class="err-text"><span class="muted">Error:</span> ' + esc(en.error) + '</div>';
+    html += '<div class="err-text"><span class="muted">' + esc(t('Error:')) + '</span> ' + esc(en.error) + '</div>';
   }
   const retries = en.retriesDetail || [];
   if (retries.length) {
-    html += '<div><span class="muted">Retries (' + retries.length + '):</span></div>' +
+    html += '<div><span class="muted">' + esc(t('Retries ({n}):', { n: retries.length })) + '</span></div>' +
       '<div class="table-scroll"><table>' +
-      '<thead><tr><th>#</th><th>Channel</th><th>Key</th><th class="num">Status</th><th>Error</th></tr></thead><tbody>' +
+      '<thead><tr><th>#</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Status')) + '</th><th>' + esc(t('Error')) + '</th></tr></thead><tbody>' +
       retries.map((r, i) =>
         '<tr><td class="muted">' + (i + 1) + '</td>' +
         '<td>' + esc(r.channelName || '–') + '</td>' +
@@ -1208,8 +1208,9 @@ function logDetailHtml(en) {
       ).join('') +
       '</tbody></table></div>';
   } else {
-    html += '<div class="muted">No retries — first attempt ' +
-      (en.status === 'success' ? 'succeeded' : 'failed') + '.</div>';
+    html += '<div class="muted">' + esc(en.status === 'success'
+      ? t('No retries — first attempt succeeded.')
+      : t('No retries — first attempt failed.')) + '</div>';
   }
   return html;
 }
@@ -1218,25 +1219,26 @@ function logDetailHtml(en) {
  * Settings
  * ============================================================ */
 
+// [value, label key, description key] — labels/descriptions resolve through t()
 const STRATEGIES = [
-  ['adaptive', 'Scores keys by latency, errors and load, picks the best (recommended).'],
-  ['round_robin', 'Cycles through active keys in fixed order.'],
-  ['random', 'Picks a uniformly random active key.'],
-  ['weighted', 'Random pick biased by channel weight.'],
-  ['least_inflight', 'Prefers the key with the fewest requests in flight.'],
-  ['lowest_latency', 'Prefers the key with the lowest recent average latency.'],
+  ['adaptive', 'Smart (adaptive)', 'Scores keys by latency, errors and load, picks the best (recommended).'],
+  ['round_robin', 'Round robin', 'Cycles through active keys in fixed order.'],
+  ['random', 'Random', 'Picks a uniformly random active key.'],
+  ['weighted', 'Weighted', 'Random pick biased by channel weight.'],
+  ['least_inflight', 'Least in-flight', 'Prefers the key with the fewest requests in flight.'],
+  ['lowest_latency', 'Lowest latency', 'Prefers the key with the lowest recent average latency.'],
 ];
 
 async function renderSettings() {
   $('#view').innerHTML =
-    '<div class="view-head"><h2>Settings</h2></div>' +
-    '<div class="card"><div id="settings-box" class="empty">Loading…</div></div>';
+    '<div class="view-head"><h2>' + esc(t('Settings')) + '</h2></div>' +
+    '<div class="card"><div id="settings-box" class="empty">' + esc(t('Loading…')) + '</div></div>';
   try {
     store.settings = await api('/api/settings');
     renderSettingsForm();
   } catch (e) {
     const box = $('#settings-box');
-    if (box) box.textContent = 'Failed to load settings.';
+    if (box) box.textContent = t('Failed to load settings.');
     toast(e.message, 'error');
   }
 }
@@ -1248,34 +1250,34 @@ function renderSettingsForm() {
   box.className = '';
   box.innerHTML =
     '<form id="settings-form" class="settings-form">' +
-      '<div class="field"><label>Key selection strategy</label>' +
+      '<div class="field"><label>' + esc(t('Key selection strategy')) + '</label>' +
         '<select name="strategy" id="set-strategy">' +
-          STRATEGIES.map(([v]) =>
-            '<option value="' + v + '"' + (s.strategy === v ? ' selected' : '') + '>' + v + '</option>').join('') +
+          STRATEGIES.map(([v, label]) =>
+            '<option value="' + v + '"' + (s.strategy === v ? ' selected' : '') + '>' + esc(t(label)) + '</option>').join('') +
         '</select>' +
         '<ul class="strategy-list" id="strategy-list">' +
-          STRATEGIES.map(([v, d]) =>
-            '<li data-strategy="' + v + '"><code>' + v + '</code> — ' + d + '</li>').join('') +
+          STRATEGIES.map(([v, label, d]) =>
+            '<li data-strategy="' + v + '"><code>' + esc(t(label)) + '</code> — ' + esc(t(d)) + '</li>').join('') +
         '</ul>' +
       '</div>' +
       '<div class="form-grid">' +
-        numField('maxAttempts', 'Max attempts', s.maxAttempts, 'Total tries per request (first attempt + retries).') +
-        numField('requestTimeoutMs', 'Request timeout (ms)', s.requestTimeoutMs, 'Overall upstream request timeout.') +
-        numField('connectTimeoutMs', 'Connect timeout (ms)', s.connectTimeoutMs, 'Upstream connection timeout.') +
-        numField('cooldown429BaseMs', 'Cooldown after 429 (ms)', s.cooldown429BaseMs, 'Base cooldown when a key gets rate-limited.') +
-        numField('cooldownErrorBaseMs', 'Cooldown after error (ms)', s.cooldownErrorBaseMs, 'Base cooldown after other upstream errors.') +
-        numField('cooldownMaxMs', 'Max cooldown (ms)', s.cooldownMaxMs, 'Upper bound for exponential cooldown.') +
-        numField('disableAfterConsecutiveFailures', 'Disable after failures', s.disableAfterConsecutiveFailures, 'Auto-disable a key after this many consecutive failures.') +
-        numField('logLimit', 'Log limit', s.logLimit, 'Number of request logs kept in memory.') +
-        '<div class="field span2"><label>Retry on status codes <span class="muted">(comma-separated)</span></label>' +
+        numField('maxAttempts', t('Max attempts'), s.maxAttempts, t('Total tries per request (first attempt + retries).')) +
+        numField('requestTimeoutMs', t('Request timeout (ms)'), s.requestTimeoutMs, t('Overall upstream request timeout.')) +
+        numField('connectTimeoutMs', t('Connect timeout (ms)'), s.connectTimeoutMs, t('Upstream connection timeout.')) +
+        numField('cooldown429BaseMs', t('Cooldown after 429 (ms)'), s.cooldown429BaseMs, t('Base cooldown when a key gets rate-limited.')) +
+        numField('cooldownErrorBaseMs', t('Cooldown after error (ms)'), s.cooldownErrorBaseMs, t('Base cooldown after other upstream errors.')) +
+        numField('cooldownMaxMs', t('Max cooldown (ms)'), s.cooldownMaxMs, t('Upper bound for exponential cooldown.')) +
+        numField('disableAfterConsecutiveFailures', t('Disable after failures'), s.disableAfterConsecutiveFailures, t('Auto-disable a key after this many consecutive failures.')) +
+        numField('logLimit', t('Log limit'), s.logLimit, t('Number of request logs kept in memory.')) +
+        '<div class="field span2"><label>' + esc(t('Retry on status codes')) + ' <span class="muted">' + esc(t('(comma-separated)')) + '</span></label>' +
           '<input name="retryOn" value="' + esc((s.retryOn || []).join(', ')) + '" placeholder="429, 500, 502, 503, 504">' +
-          '<div class="hint">A response with one of these codes triggers a retry on another key.</div></div>' +
+          '<div class="hint">' + esc(t('A response with one of these codes triggers a retry on another key.')) + '</div></div>' +
         '<div class="field span2"><label class="checklab"><input type="checkbox" name="allowAnonymous"' +
-          (s.allowAnonymous ? ' checked' : '') + '> Allow anonymous access to /v1 (no access token required)</label></div>' +
+          (s.allowAnonymous ? ' checked' : '') + '> ' + esc(t('Allow anonymous access to /v1 (no access token required)')) + '</label></div>' +
       '</div>' +
       '<div class="form-actions">' +
-        '<button type="submit" class="btn btn-primary">Save settings</button>' +
-        '<span class="save-note" id="save-note">Saved ✓</span>' +
+        '<button type="submit" class="btn btn-primary">' + esc(t('Save settings')) + '</button>' +
+        '<span class="save-note" id="save-note">' + esc(t('Saved ✓')) + '</span>' +
       '</div>' +
     '</form>';
   updateStrategyHelp();
@@ -1299,7 +1301,7 @@ async function submitSettingsForm(form) {
   const f = form.elements;
   const retryOn = f.retryOn.value.split(',').map((s) => s.trim()).filter(Boolean).map(Number);
   if (retryOn.some((n) => !Number.isInteger(n) || n < 100 || n > 599)) {
-    toast('Retry codes must be HTTP status codes (100–599)', 'error');
+    toast(t('Retry codes must be HTTP status codes (100–599)'), 'error');
     return;
   }
   const body = {
@@ -1390,7 +1392,7 @@ async function runAction(el) {
     case 'channel-delete': {
       const ch = store.channels.find((c) => c.id === id);
       const name = ch ? ch.name : id;
-      if (!confirm('Delete channel "' + name + '" and all of its keys?')) return;
+      if (!confirm(t('Delete channel "{name}" and all of its keys?', { name: name }))) return;
       await withBusy(el, () => api('/api/channels/' + encodeURIComponent(id), { method: 'DELETE' }));
       if (store.expandedChannel === id) store.expandedChannel = null;
       delete store.keysByChannel[id];
@@ -1415,7 +1417,7 @@ async function runAction(el) {
 
     case 'key-test': {
       const out = document.querySelector('[data-test-result="' + cssEsc(id) + '"]');
-      if (out) { out.textContent = 'Testing…'; out.className = 'test-result muted'; }
+      if (out) { out.textContent = t('Testing…'); out.className = 'test-result muted'; }
       try {
         const r = await withBusy(el, () => api('/api/keys/' + encodeURIComponent(id) + '/test', { method: 'POST' }));
         const fresh = document.querySelector('[data-test-result="' + cssEsc(id) + '"]');
@@ -1424,7 +1426,7 @@ async function runAction(el) {
             fresh.textContent = 'OK · ' + r.statusCode + ' · ' + fmtMs(r.latencyMs);
             fresh.className = 'test-result ok-text';
           } else {
-            fresh.textContent = 'Failed' +
+            fresh.textContent = t('Failed') +
               (r && r.statusCode ? ' · ' + r.statusCode : '') +
               (r && r.error ? ' · ' + truncate(r.error, 70) : '');
             fresh.className = 'test-result err-text';
@@ -1432,14 +1434,14 @@ async function runAction(el) {
         }
       } catch (err) {
         const fresh = document.querySelector('[data-test-result="' + cssEsc(id) + '"]');
-        if (fresh) { fresh.textContent = 'Test failed · ' + truncate(err.message, 70); fresh.className = 'test-result err-text'; }
+        if (fresh) { fresh.textContent = t('Test failed · {err}', { err: truncate(err.message, 70) }); fresh.className = 'test-result err-text'; }
         throw err;
       }
       break;
     }
 
     case 'key-delete':
-      if (!confirm('Delete this key?')) return;
+      if (!confirm(t('Delete this key?'))) return;
       await withBusy(el, () => api('/api/keys/' + encodeURIComponent(id), { method: 'DELETE' }));
       store.selectedKeys.delete(id);
       toast('Key deleted', 'success');
@@ -1449,10 +1451,10 @@ async function runAction(el) {
     case 'keys-delete-selected': {
       const ids = Array.from(store.selectedKeys);
       if (!ids.length) return;
-      if (!confirm('Delete ' + ids.length + ' selected key' + (ids.length === 1 ? '' : 's') + '?')) return;
+      if (!confirm(t('Delete {n} selected keys?', { n: ids.length }))) return;
       const r = await withBusy(el, () => api('/api/keys/batch-delete', { method: 'POST', body: { ids: ids } }));
       store.selectedKeys.clear();
-      toast('Deleted ' + ((r && r.deleted) != null ? r.deleted : ids.length) + ' keys', 'success');
+      toast(t('Deleted {n} keys', { n: (r && r.deleted) != null ? r.deleted : ids.length }), 'success');
       await refreshChannelsAndKeys(id); // data-id on this button is the channel id
       break;
     }
@@ -1465,10 +1467,10 @@ async function runAction(el) {
         api('/api/channels/' + encodeURIComponent(id) + '/keys', { method: 'POST', body: { keys: text } }));
       const added = r && r.added != null ? r.added : 0;
       const skipped = r && r.skipped != null ? r.skipped : 0;
-      toast('Imported: ' + added + ' added, ' + skipped + ' skipped', added ? 'success' : 'info');
+      toast(t('Imported: {added} added, {skipped} skipped', { added: added, skipped: skipped }), added ? 'success' : 'info');
       await refreshChannelsAndKeys(id);
       const res = document.getElementById('import-result-' + id);
-      if (res) res.textContent = added + ' added, ' + skipped + ' skipped';
+      if (res) res.textContent = t('{added} added, {skipped} skipped', { added: added, skipped: skipped });
       break;
     }
 
@@ -1477,7 +1479,7 @@ async function runAction(el) {
       break;
 
     case 'token-delete': {
-      if (!confirm('Delete this access token? Clients using it will stop working.')) return;
+      if (!confirm(t('Delete this access token? Clients using it will stop working.'))) return;
       await withBusy(el, () => api('/api/tokens/' + encodeURIComponent(id), { method: 'DELETE' }));
       toast('Token deleted', 'success');
       store.tokens = (await api('/api/tokens')) || [];
@@ -1504,47 +1506,52 @@ async function withBusy(btn, fn) {
 /* ----- change events (toggles, selects, checkboxes) ----- */
 
 document.addEventListener('change', async (e) => {
-  const t = e.target;
+  const el = e.target;
   try {
-    if (t.matches('[data-toggle="channel"]')) {
-      await api('/api/channels/' + encodeURIComponent(t.dataset.id), { method: 'PUT', body: { enabled: t.checked } });
-      toast('Channel ' + (t.checked ? 'enabled' : 'disabled'), 'success');
+    if (el.matches('[data-lang-sel]')) {
+      setLang(el.value);
+      renderConnStatus();
+      if (store.auth.username !== null) onRoute(); // re-render the current view in the new language
+
+    } else if (el.matches('[data-toggle="channel"]')) {
+      await api('/api/channels/' + encodeURIComponent(el.dataset.id), { method: 'PUT', body: { enabled: el.checked } });
+      toast('Channel ' + (el.checked ? 'enabled' : 'disabled'), 'success');
       await refreshChannelsAndKeys(store.expandedChannel);
 
-    } else if (t.matches('[data-toggle="token"]')) {
-      await api('/api/tokens/' + encodeURIComponent(t.dataset.id), { method: 'PATCH', body: { enabled: t.checked } });
-      const tok = store.tokens.find((x) => x.id === t.dataset.id);
-      if (tok) tok.enabled = t.checked;
-      toast('Token ' + (t.checked ? 'enabled' : 'disabled'), 'success');
+    } else if (el.matches('[data-toggle="token"]')) {
+      await api('/api/tokens/' + encodeURIComponent(el.dataset.id), { method: 'PATCH', body: { enabled: el.checked } });
+      const tok = store.tokens.find((x) => x.id === el.dataset.id);
+      if (tok) tok.enabled = el.checked;
+      toast('Token ' + (el.checked ? 'enabled' : 'disabled'), 'success');
 
-    } else if (t.matches('[data-reveal]')) {
-      store.revealKeys[t.dataset.id] = t.checked;
-      await loadKeysAndRender(t.dataset.id);
+    } else if (el.matches('[data-reveal]')) {
+      store.revealKeys[el.dataset.id] = el.checked;
+      await loadKeysAndRender(el.dataset.id);
 
-    } else if (t.matches('[data-keysel]')) {
-      if (t.checked) store.selectedKeys.add(t.dataset.keysel);
-      else store.selectedKeys.delete(t.dataset.keysel);
+    } else if (el.matches('[data-keysel]')) {
+      if (el.checked) store.selectedKeys.add(el.dataset.keysel);
+      else store.selectedKeys.delete(el.dataset.keysel);
       updateBatchBar();
 
-    } else if (t.matches('[data-keysel-all]')) {
-      const keys = store.keysByChannel[t.dataset.id] || [];
+    } else if (el.matches('[data-keysel-all]')) {
+      const keys = store.keysByChannel[el.dataset.id] || [];
       keys.forEach((k) => {
-        if (t.checked) store.selectedKeys.add(k.id);
+        if (el.checked) store.selectedKeys.add(k.id);
         else store.selectedKeys.delete(k.id);
       });
-      $$('[data-keysel]').forEach((cb) => { cb.checked = t.checked; });
+      $$('[data-keysel]').forEach((cb) => { cb.checked = el.checked; });
       updateBatchBar();
 
-    } else if (t.closest('#logs-filter') && t.name !== 'q') {
+    } else if (el.closest('#logs-filter') && el.name !== 'q') {
       readLogFilters();
       await fetchLogs();
 
-    } else if (t.id === 'set-strategy') {
+    } else if (el.id === 'set-strategy') {
       updateStrategyHelp();
     }
   } catch (err) {
     toast(err.message, 'error');
-    if (t.type === 'checkbox') t.checked = !t.checked; // revert failed toggle
+    if (el.type === 'checkbox') el.checked = !el.checked; // revert failed toggle
   }
 });
 
@@ -1612,10 +1619,10 @@ setInterval(() => {
     const until = Number(el.dataset.cooldownUntil) || 0;
     const remain = Math.ceil((until - now) / 1000);
     if (remain > 0) {
-      el.textContent = 'cooldown · ' + remain + 's';
+      el.textContent = t('cooldown · {n}s', { n: remain });
     } else {
       // Cooldown elapsed — optimistically flip to active until the server says otherwise.
-      el.textContent = 'active';
+      el.textContent = t('active');
       el.classList.remove('badge-cooldown');
       el.classList.add('badge-active');
       el.removeAttribute('data-cooldown-until');

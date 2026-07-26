@@ -1,6 +1,6 @@
 {
   "name": "hivekey",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Self-hosted LLM API key pool with smart scheduling, automatic retry/failover, proxy support and a real-time web dashboard.",
   "main": "src/index.js",
   "type": "commonjs",
