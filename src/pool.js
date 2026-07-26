@@ -24,6 +24,8 @@ class Pool {
     for (const key of this.store.data.keys) {
       key.inflight = 0;
       if (!key.stats) key.stats = this._emptyStats();
+      if (!Number.isFinite(key.ewmaTtftMs)) key.ewmaTtftMs = 0;
+      if (!Number.isFinite(key.ewmaTps)) key.ewmaTps = 0;
     }
   }
 
@@ -172,6 +174,8 @@ class Pool {
         consecutive429: 0,
         consecutiveHard: 0,
         ewmaLatencyMs: 0,
+        ewmaTtftMs: 0,
+        ewmaTps: 0,
         inflight: 0,
         stats: this._emptyStats(),
       };
@@ -233,6 +237,12 @@ class Pool {
 
   // ---------- selection candidates ----------
 
+  /** A channel serves `model` when its list is empty, contains it verbatim,
+   *  or contains a trailing-`*` wildcard pattern that prefix-matches it. */
+  static modelMatches(patterns, model) {
+    return patterns.some((p) => p === model || (typeof p === 'string' && p.endsWith('*') && model.startsWith(p.slice(0, -1))));
+  }
+
   /**
    * Available (channel, key) pairs for a model, honoring channel priority tiers:
    * only the highest-priority tier that has any available key is returned.
@@ -242,7 +252,7 @@ class Pool {
     const now = Date.now();
     const channels = this.store.data.channels
       .filter((ch) => ch.enabled)
-      .filter((ch) => !model || !ch.models?.length || ch.models.includes(model))
+      .filter((ch) => !model || !ch.models?.length || Pool.modelMatches(ch.models, model))
       .sort((a, b) => b.priority - a.priority);
 
     const tiers = new Map(); // priority -> [{channel, key}]
@@ -270,7 +280,9 @@ class Pool {
 
   // ---------- outcome accounting ----------
 
-  markSuccess(key, latencyMs, usage) {
+  /** `perf` is either a latency number (legacy) or {latencyMs, ttftMs, tps}. */
+  markSuccess(key, perf, usage) {
+    const p = typeof perf === 'number' ? { latencyMs: perf } : perf || {};
     key.consecutiveFailures = 0;
     key.consecutive429 = 0;
     key.consecutiveHard = 0;
@@ -282,10 +294,20 @@ class Pool {
       key.stats.promptTokens += usage.promptTokens || 0;
       key.stats.completionTokens += usage.completionTokens || 0;
     }
-    if (Number.isFinite(latencyMs)) {
+    if (Number.isFinite(p.latencyMs)) {
       key.ewmaLatencyMs = key.ewmaLatencyMs
-        ? Math.round(key.ewmaLatencyMs * 0.7 + latencyMs * 0.3)
-        : Math.round(latencyMs);
+        ? Math.round(key.ewmaLatencyMs * 0.7 + p.latencyMs * 0.3)
+        : Math.round(p.latencyMs);
+    }
+    if (Number.isFinite(p.ttftMs)) {
+      key.ewmaTtftMs = key.ewmaTtftMs
+        ? Math.round(key.ewmaTtftMs * 0.7 + p.ttftMs * 0.3)
+        : Math.round(p.ttftMs);
+    }
+    if (Number.isFinite(p.tps) && p.tps > 0) {
+      key.ewmaTps = key.ewmaTps
+        ? Math.round((key.ewmaTps * 0.7 + p.tps * 0.3) * 10) / 10
+        : Math.round(p.tps * 10) / 10;
     }
     if (key.cooldownUntil) {
       key.cooldownUntil = 0;
@@ -425,6 +447,10 @@ class Pool {
     let failed = 0;
     let latencySum = 0;
     let latencyN = 0;
+    let ttftSum = 0;
+    let ttftN = 0;
+    let tpsSum = 0;
+    let tpsN = 0;
     let active = 0;
     for (const k of keys) {
       requests += k.stats.requests;
@@ -433,6 +459,14 @@ class Pool {
       if (k.ewmaLatencyMs) {
         latencySum += k.ewmaLatencyMs;
         latencyN += 1;
+      }
+      if (k.ewmaTtftMs) {
+        ttftSum += k.ewmaTtftMs;
+        ttftN += 1;
+      }
+      if (k.ewmaTps) {
+        tpsSum += k.ewmaTps;
+        tpsN += 1;
       }
       if (this.keyStatus(k, now) === 'active') active += 1;
     }
@@ -445,6 +479,8 @@ class Pool {
         success,
         failed,
         avgLatencyMs: latencyN ? Math.round(latencySum / latencyN) : 0,
+        avgTtftMs: ttftN ? Math.round(ttftSum / ttftN) : 0,
+        avgTps: tpsN ? Math.round((tpsSum / tpsN) * 10) / 10 : 0,
       },
     };
   }
@@ -464,8 +500,124 @@ class Pool {
         ...key.stats,
         consecutiveFailures: key.consecutiveFailures,
         ewmaLatencyMs: key.ewmaLatencyMs,
+        ewmaTtftMs: key.ewmaTtftMs || 0,
+        ewmaTps: key.ewmaTps || 0,
       },
     };
+  }
+
+  // ---------- backup import ----------
+
+  /**
+   * Import a backup produced by GET /api/export.
+   * mode "merge": add unknown channels/keys/tokens, keep everything existing.
+   * mode "replace": drop all channels/keys/tokens first (settings come from the
+   * backup too); admin credentials/sessions (store.meta) are never touched.
+   */
+  importData(data, mode = 'merge') {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw Object.assign(new Error('backup must be a JSON object'), { status: 400 });
+    }
+    const inChannels = Array.isArray(data.channels) ? data.channels : [];
+    const inKeys = Array.isArray(data.keys) ? data.keys : [];
+    const inTokens = Array.isArray(data.tokens) ? data.tokens : [];
+    if (mode === 'replace') {
+      this.store.data.channels = [];
+      this.store.data.keys = [];
+      this.store.data.tokens = [];
+      if (data.settings && typeof data.settings === 'object') this.store.updateSettings(data.settings);
+      this._reindex();
+    }
+
+    const counts = { channels: 0, keys: 0, tokens: 0, skipped: 0 };
+    const channelIdMap = new Map(); // backup channel id -> live channel id
+
+    for (const raw of inChannels) {
+      if (!raw || typeof raw !== 'object') continue;
+      const existing = raw.id && this.channelsById.get(raw.id);
+      if (existing) {
+        channelIdMap.set(raw.id, existing.id);
+        counts.skipped += 1;
+        continue;
+      }
+      let ch;
+      try {
+        ch = this._sanitizeChannel(raw, {
+          id: typeof raw.id === 'string' && raw.id ? raw.id : genId('ch'),
+          createdAt: Number(raw.createdAt) || Date.now(),
+        });
+      } catch {
+        counts.skipped += 1;
+        continue;
+      }
+      this.store.data.channels.push(ch);
+      this.channelsById.set(ch.id, ch);
+      this.keysByChannel.set(ch.id, []);
+      channelIdMap.set(raw.id, ch.id);
+      counts.channels += 1;
+    }
+
+    for (const raw of inKeys) {
+      if (!raw || typeof raw !== 'object' || typeof raw.key !== 'string' || !raw.key.trim()) continue;
+      const channelId = channelIdMap.get(raw.channelId) || (this.channelsById.has(raw.channelId) ? raw.channelId : null);
+      if (!channelId) {
+        counts.skipped += 1;
+        continue;
+      }
+      const list = this.keysByChannel.get(channelId) || [];
+      if (list.some((k) => k.key === raw.key)) {
+        counts.skipped += 1;
+        continue;
+      }
+      const key = {
+        id: typeof raw.id === 'string' && raw.id && !this.keysById.has(raw.id) ? raw.id : genId('key'),
+        channelId,
+        key: raw.key.trim(),
+        enabled: raw.enabled !== false,
+        autoDisabled: !!raw.autoDisabled,
+        createdAt: Number(raw.createdAt) || Date.now(),
+        cooldownUntil: 0,
+        consecutiveFailures: 0,
+        consecutive429: 0,
+        consecutiveHard: 0,
+        ewmaLatencyMs: Number(raw.ewmaLatencyMs) || 0,
+        ewmaTtftMs: Number(raw.ewmaTtftMs) || 0,
+        ewmaTps: Number(raw.ewmaTps) || 0,
+        inflight: 0,
+        stats: { ...this._emptyStats(), ...(raw.stats && typeof raw.stats === 'object' ? raw.stats : {}) },
+      };
+      key.stats.lastError = key.stats.lastError == null ? null : String(key.stats.lastError).slice(0, 300);
+      this.store.data.keys.push(key);
+      this.keysById.set(key.id, key);
+      let arr = this.keysByChannel.get(channelId);
+      if (!arr) {
+        arr = [];
+        this.keysByChannel.set(channelId, arr);
+      }
+      arr.push(key);
+      counts.keys += 1;
+    }
+
+    for (const raw of inTokens) {
+      if (!raw || typeof raw !== 'object' || typeof raw.token !== 'string' || !raw.token) continue;
+      if (this.store.data.tokens.some((t) => t.token === raw.token)) {
+        counts.skipped += 1;
+        continue;
+      }
+      this.store.data.tokens.push({
+        id: typeof raw.id === 'string' && raw.id ? raw.id : genId('tok'),
+        name: String(raw.name ?? '').trim() || 'imported',
+        token: raw.token,
+        enabled: raw.enabled !== false,
+        createdAt: Number(raw.createdAt) || Date.now(),
+        lastUsedAt: Number(raw.lastUsedAt) || 0,
+        requests: Number(raw.requests) || 0,
+      });
+      counts.tokens += 1;
+    }
+
+    this.store.save();
+    return counts;
   }
 }
 

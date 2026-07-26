@@ -133,14 +133,21 @@ class Auth {
     return token;
   }
 
-  /** Middleware for /v1/*: validates the pool access token unless anonymous access is on. */
-  clientMiddleware() {
+  /**
+   * Middleware for the LLM endpoints: validates the pool access token unless
+   * anonymous access is on. Tokens are accepted the way each SDK sends them:
+   * Authorization: Bearer (OpenAI), x-api-key (Anthropic), x-goog-api-key /
+   * ?key= (Gemini — query only where `allowQueryKey` is set).
+   */
+  clientMiddleware({ allowQueryKey = false } = {}) {
     return (req, res, next) => {
       if (this.store.settings.allowAnonymous) return next();
       let presented = null;
       const header = req.headers.authorization;
       if (header && header.startsWith('Bearer ')) presented = header.slice(7);
       if (!presented && typeof req.headers['x-api-key'] === 'string') presented = req.headers['x-api-key'];
+      if (!presented && typeof req.headers['x-goog-api-key'] === 'string') presented = req.headers['x-goog-api-key'];
+      if (!presented && allowQueryKey && req.query && typeof req.query.key === 'string') presented = req.query.key;
       if (!presented) {
         return res.status(401).json({
           error: { message: 'missing pool access token (Authorization: Bearer sk-pool-…)', type: 'invalid_request_error' },

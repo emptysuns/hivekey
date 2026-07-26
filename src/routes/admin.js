@@ -2,10 +2,11 @@
 const express = require('express');
 const { request: undiciRequest } = require('undici');
 const { getDispatcher, normalizeBaseUrl } = require('../proxy');
+const { maskKey } = require('../util');
 
 function createAdminRouter({ pool, store, stats, events, auth, config }) {
   const router = express.Router();
-  router.use(express.json({ limit: '2mb' }));
+  router.use(express.json({ limit: '25mb' })); // backup imports can be large
 
   // Secure is appended when the request arrived over TLS (req.secure honors
   // X-Forwarded-Proto when TRUST_PROXY is set)
@@ -35,17 +36,22 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
   router.get('/auth/me', (req, res) => res.json({ username: req.adminUser }));
 
   // ---------- overview ----------
+  const overviewPayload = () => ({
+    uptimeMs: Date.now() - stats.startedAt,
+    totals: { ...stats.totals, inflight: stats.live.size },
+    rpm: stats.rpm(),
+    avgLatencyMs: stats.avgLatencyMs(),
+    avgTtftMs: stats.avgTtftMs(),
+    avgTps: stats.avgTps(),
+    channelCount: store.data.channels.length,
+    keyCounts: pool.keyCounts(),
+    problemKeys: pool.problemKeys(),
+    history: stats.history(),
+    daily: store.dailyUsage(14),
+  });
+
   router.get('/overview', (req, res) => {
-    res.json({
-      uptimeMs: Date.now() - stats.startedAt,
-      totals: { ...stats.totals, inflight: stats.live.size },
-      rpm: stats.rpm(),
-      avgLatencyMs: stats.avgLatencyMs(),
-      channelCount: store.data.channels.length,
-      keyCounts: pool.keyCounts(),
-      problemKeys: pool.problemKeys(),
-      history: stats.history(),
-    });
+    res.json(overviewPayload());
   });
 
   // ---------- channels ----------
@@ -86,7 +92,7 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
       if (keyPrefix == null) keyPrefix = channel.keyPrefix;
       if (!key) {
         const keys = pool.keysByChannel.get(b.channelId) || [];
-        const pick = keys.find((k) => k.enabled && k.status === 'active') || keys.find((k) => k.enabled) || keys[0];
+        const pick = keys.find((k) => pool.keyStatus(k) === 'active') || keys.find((k) => k.enabled) || keys[0];
         if (pick) key = pick.key;
       }
     }
@@ -203,6 +209,65 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
     }
   });
 
+  // Test every (enabled) key of a channel against the upstream, bounded
+  // concurrency. Reports results only — never mutates key state.
+  router.post('/channels/:id/test-keys', async (req, res) => {
+    const channel = pool.channelsById.get(req.params.id);
+    if (!channel) return res.status(404).json({ error: 'channel not found' });
+    let keys = pool.keysByChannel.get(channel.id) || [];
+    if (req.body?.onlyEnabled !== false) keys = keys.filter((k) => k.enabled);
+    keys = keys.slice(0, 500);
+
+    const results = [];
+    const url = `${normalizeBaseUrl(channel.baseUrl)}/v1/models`;
+    const dispatcher = getDispatcher(channel.proxy || config.globalProxy, store.settings.connectTimeoutMs);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < keys.length) {
+        const key = keys[cursor];
+        cursor += 1;
+        const started = Date.now();
+        try {
+          const upstream = await undiciRequest(url, {
+            method: 'GET',
+            headers: {
+              [(channel.keyHeader || 'Authorization').toLowerCase()]: `${channel.keyPrefix ?? 'Bearer '}${key.key}`,
+              'accept-encoding': 'identity',
+            },
+            dispatcher,
+            headersTimeout: 10_000,
+            bodyTimeout: 10_000,
+          });
+          let snippet = '';
+          for await (const chunk of upstream.body) {
+            if (snippet.length < 300) snippet += chunk.toString('utf8');
+          }
+          const ok = upstream.statusCode >= 200 && upstream.statusCode < 300;
+          results.push({
+            keyId: key.id,
+            keyMasked: maskKey(key.key),
+            ok,
+            statusCode: upstream.statusCode,
+            latencyMs: Date.now() - started,
+            error: ok ? undefined : snippet.slice(0, 200),
+          });
+        } catch (err) {
+          results.push({
+            keyId: key.id,
+            keyMasked: maskKey(key.key),
+            ok: false,
+            statusCode: 0,
+            latencyMs: Date.now() - started,
+            error: `network error: ${err?.cause?.code || err?.code || err?.message || 'unknown'}`,
+          });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, keys.length) }, worker));
+    const okCount = results.filter((r) => r.ok).length;
+    return res.json({ total: results.length, ok: okCount, failed: results.length - okCount, results });
+  });
+
   router.delete('/keys/:id', (req, res) => {
     if (!pool.deleteKey(req.params.id)) return res.status(404).json({ error: 'key not found' });
     return res.json({ ok: true });
@@ -263,6 +328,35 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
   router.get('/settings', (req, res) => res.json(store.settings));
   router.put('/settings', (req, res) => res.json(store.updateSettings(req.body || {})));
 
+  // ---------- backup: export / import ----------
+  router.get('/export', (req, res) => {
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="hivekey-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+    );
+    res.json({
+      version: 1,
+      exportedAt: Date.now(),
+      channels: store.data.channels,
+      // strip runtime-only fields from keys
+      keys: store.data.keys.map(({ inflight, ...rest }) => rest),
+      tokens: store.data.tokens,
+      settings: store.settings,
+      usage: store.data.usage,
+    });
+  });
+
+  router.post('/import', (req, res) => {
+    const body = req.body || {};
+    const mode = body.mode === 'replace' ? 'replace' : 'merge';
+    const counts = pool.importData(body.data, mode);
+    if (mode === 'replace' && body.data && typeof body.data.usage === 'object' && !Array.isArray(body.data.usage)) {
+      store.data.usage = body.data.usage;
+      store.save();
+    }
+    return res.json({ mode, ...counts });
+  });
+
   // ---------- SSE ----------
   router.get('/events', (req, res) => {
     res.writeHead(200, {
@@ -272,16 +366,7 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
       'X-Accel-Buffering': 'no',
     });
     res.write(`event: snapshot\ndata: ${JSON.stringify({
-      overview: {
-        uptimeMs: Date.now() - stats.startedAt,
-        totals: { ...stats.totals, inflight: stats.live.size },
-        rpm: stats.rpm(),
-        avgLatencyMs: stats.avgLatencyMs(),
-        channelCount: store.data.channels.length,
-        keyCounts: pool.keyCounts(),
-        problemKeys: pool.problemKeys(),
-        history: stats.history(),
-      },
+      overview: overviewPayload(),
       live: stats.liveList(),
     })}\n\n`);
     events.addClient(res);

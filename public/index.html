@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HiveKey</title>
+<script>/* apply the saved theme before first paint to avoid flashing */
+(function () {
+  try {
+    var t = localStorage.getItem('hivekey-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* storage unavailable */ }
+})();
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23141311'/%3E%3Cpath d='M12 3.4l7.4 4.3v8.6L12 20.6l-7.4-4.3V7.7z' fill='none' stroke='%23f0b429' stroke-width='1.7'/%3E%3Ccircle cx='12' cy='12' r='2.6' fill='%23f0b429'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -28,6 +36,17 @@
     <button type="submit" class="btn btn-primary btn-block" id="login-btn" data-i18n="Sign in">Sign in</button>
     <div id="login-error" class="login-error hidden"></div>
     <div class="login-lang">
+      <div class="theme-seg" role="group" aria-label="Theme">
+        <button type="button" data-action="theme-set" data-theme-opt="auto" data-i18n-title="Auto" title="Auto">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button type="button" data-action="theme-set" data-theme-opt="light" data-i18n-title="Light" title="Light">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3L19 19M19 5l-1.7 1.7M6.7 17.3L5 19"/></svg>
+        </button>
+        <button type="button" data-action="theme-set" data-theme-opt="dark" data-i18n-title="Dark" title="Dark">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+        </button>
+      </div>
       <select data-lang-sel aria-label="Language">
         <option value="en">English</option>
         <option value="zh-CN">中文</option>
@@ -68,6 +87,17 @@
     <div class="sidebar-foot">
       <div id="conn-status"><span class="conn-dot"></span><span class="conn-text">Disconnected</span></div>
       <div id="whoami"></div>
+      <div class="theme-seg" role="group" aria-label="Theme">
+        <button type="button" data-action="theme-set" data-theme-opt="auto" data-i18n-title="Auto" title="Auto">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button type="button" data-action="theme-set" data-theme-opt="light" data-i18n-title="Light" title="Light">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3L19 19M19 5l-1.7 1.7M6.7 17.3L5 19"/></svg>
+        </button>
+        <button type="button" data-action="theme-set" data-theme-opt="dark" data-i18n-title="Dark" title="Dark">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+        </button>
+      </div>
       <select class="lang-sel" data-lang-sel aria-label="Language">
         <option value="en">English</option>
         <option value="zh-CN">中文</option>

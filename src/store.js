@@ -2,8 +2,19 @@
 const fs = require('fs');
 const path = require('path');
 
+const STRATEGY_NAMES = [
+  'adaptive',
+  'round_robin',
+  'random',
+  'weighted',
+  'least_inflight',
+  'lowest_latency',
+  'lowest_ttft',
+  'highest_throughput',
+];
+
 const DEFAULT_SETTINGS = {
-  strategy: 'adaptive', // adaptive | round_robin | random | weighted | least_inflight | lowest_latency
+  strategy: 'adaptive', // see STRATEGY_NAMES
   maxAttempts: 3,
   requestTimeoutMs: 300_000,
   connectTimeoutMs: 10_000,
@@ -30,6 +41,7 @@ class Store {
       tokens: [],
       settings: { ...DEFAULT_SETTINGS },
       meta: {},
+      usage: {}, // 'YYYY-MM-DD' -> daily counters
     };
     this._saveTimer = null;
     this._dirty = false;
@@ -69,7 +81,51 @@ class Store {
     this.data.tokens = raw.tokens || [];
     this.data.settings = { ...DEFAULT_SETTINGS, ...(raw.settings || {}) };
     this.data.meta = raw.meta || {};
+    this.data.usage = raw.usage && typeof raw.usage === 'object' && !Array.isArray(raw.usage) ? raw.usage : {};
     return this;
+  }
+
+  // ---------- daily usage aggregates (persisted, survive restarts) ----------
+
+  static dayKey(d = new Date()) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  /** Fold a finished request log entry into today's persisted counters. */
+  recordDaily(entry) {
+    const day = Store.dayKey();
+    if (!this.data.usage || typeof this.data.usage !== 'object') this.data.usage = {};
+    let rec = this.data.usage[day];
+    if (!rec) {
+      rec = this.data.usage[day] = { requests: 0, success: 0, failed: 0, promptTokens: 0, completionTokens: 0 };
+      const days = Object.keys(this.data.usage).sort();
+      while (days.length > 45) delete this.data.usage[days.shift()];
+    }
+    rec.requests += 1;
+    if (entry && entry.status === 'success') rec.success += 1;
+    else rec.failed += 1;
+    rec.promptTokens += (entry && entry.promptTokens) || 0;
+    rec.completionTokens += (entry && entry.completionTokens) || 0;
+    this.save();
+  }
+
+  /** The last `n` days (oldest first), zero-filled for days with no traffic. */
+  dailyUsage(n = 14) {
+    const out = [];
+    const now = new Date();
+    for (let i = n - 1; i >= 0; i -= 1) {
+      const day = Store.dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
+      const rec = (this.data.usage && this.data.usage[day]) || {};
+      out.push({
+        date: day,
+        requests: rec.requests || 0,
+        success: rec.success || 0,
+        failed: rec.failed || 0,
+        promptTokens: rec.promptTokens || 0,
+        completionTokens: rec.completionTokens || 0,
+      });
+    }
+    return out;
   }
 
   get settings() {
@@ -91,8 +147,7 @@ class Store {
     for (const k of Object.keys(DEFAULT_SETTINGS)) {
       if (patch[k] === undefined) continue;
       if (k === 'strategy') {
-        const allowed = ['adaptive', 'round_robin', 'random', 'weighted', 'least_inflight', 'lowest_latency'];
-        if (allowed.includes(patch[k])) s[k] = patch[k];
+        if (STRATEGY_NAMES.includes(patch[k])) s[k] = patch[k];
       } else if (k === 'retryOn') {
         const arr = Array.isArray(patch[k]) ? patch[k] : String(patch[k]).split(',');
         s[k] = arr.map((v) => parseInt(v, 10)).filter((v) => v >= 400 && v <= 599);
@@ -137,4 +192,4 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULT_SETTINGS };
+module.exports = { Store, DEFAULT_SETTINGS, STRATEGY_NAMES };

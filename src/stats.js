@@ -28,7 +28,18 @@ class Stats {
     const minute = Math.floor(ts / 60_000) * 60_000;
     let b = this.buckets.get(minute);
     if (!b) {
-      b = { ts: minute, requests: 0, success: 0, failed: 0, latencySum: 0, latencyCount: 0 };
+      b = {
+        ts: minute,
+        requests: 0,
+        success: 0,
+        failed: 0,
+        latencySum: 0,
+        latencyCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+      };
       this.buckets.set(minute, b);
       // prune old buckets
       const cutoff = minute - HISTORY_MINUTES * 60_000;
@@ -62,6 +73,14 @@ class Stats {
       b.latencySum += logEntry.latencyMs;
       b.latencyCount += 1;
     }
+    if (ok && Number.isFinite(logEntry.ttftMs)) {
+      b.ttftSum += logEntry.ttftMs;
+      b.ttftCount += 1;
+    }
+    if (ok && Number.isFinite(logEntry.tokensPerSec) && logEntry.tokensPerSec > 0) {
+      b.tpsSum += logEntry.tokensPerSec;
+      b.tpsCount += 1;
+    }
 
     this.recentTs.push(now);
     const cutoff = now - 300_000;
@@ -83,7 +102,7 @@ class Stats {
     return n;
   }
 
-  avgLatencyMs() {
+  _recentAvg(sumField, countField, round = (v) => Math.round(v)) {
     // weighted average over the last 5 minute-buckets
     const now = Math.floor(Date.now() / 60_000) * 60_000;
     let sum = 0;
@@ -91,11 +110,23 @@ class Stats {
     for (let m = now - 4 * 60_000; m <= now; m += 60_000) {
       const b = this.buckets.get(m);
       if (b) {
-        sum += b.latencySum;
-        count += b.latencyCount;
+        sum += b[sumField] || 0;
+        count += b[countField] || 0;
       }
     }
-    return count ? Math.round(sum / count) : 0;
+    return count ? round(sum / count) : 0;
+  }
+
+  avgLatencyMs() {
+    return this._recentAvg('latencySum', 'latencyCount');
+  }
+
+  avgTtftMs() {
+    return this._recentAvg('ttftSum', 'ttftCount');
+  }
+
+  avgTps() {
+    return this._recentAvg('tpsSum', 'tpsCount', (v) => Math.round(v * 10) / 10);
   }
 
   history() {

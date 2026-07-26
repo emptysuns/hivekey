@@ -2,6 +2,14 @@
 const { request: undiciRequest, Agent, ProxyAgent } = require('undici');
 const { genId, maskKey, parseRetryAfterMs } = require('./util');
 const { selectCandidate } = require('./scheduler');
+const {
+  detectRoute,
+  estimateAnthropicTokens,
+  estimateGeminiTokens,
+  upstreamErrorMessage,
+  createSseParser,
+  simulateStream,
+} = require('./adapters');
 
 const HOP_BY_HOP = new Set([
   'connection',
@@ -20,11 +28,16 @@ const REQUEST_SKIP = new Set([
   'content-length',
   'authorization', // replaced with the upstream key
   'x-api-key',
+  'x-goog-api-key',
+  'anthropic-version', // inbound-protocol headers are meaningless upstream
+  'anthropic-beta',
   'cookie',
   'accept-encoding', // forced to identity so usage can be parsed from responses
   'expect', // Node already answered the 100-continue handshake; undici rejects this header
   'content-encoding', // express.raw inflates gzip/deflate bodies, so the original header is stale
 ]);
+
+const MAX_TRANSLATED_BODY = 16 * 1024 * 1024; // buffered-response cap for protocol translation
 
 const dispatcherCache = new Map(); // `${proxy}|${connectTimeout}` -> dispatcher (LRU, bounded)
 const MAX_DISPATCHERS = 16;
@@ -159,7 +172,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
   return async function handleProxyRequest(req, res) {
     const settings = store.settings;
     const started = Date.now();
-    const rawBody = Buffer.isBuffer(req.body) && req.body.length ? req.body : null;
+    let rawBody = Buffer.isBuffer(req.body) && req.body.length ? req.body : null;
 
     // extract model / stream flag from JSON bodies for routing + logs
     let parsedBody = null;
@@ -179,12 +192,63 @@ function createProxyHandler({ pool, store, stats, events, config }) {
     // to origin-form so a hostile target can't corrupt the outbound URL and get
     // the resulting failure charged against a key's health.
     let targetPath;
+    let clientPathname;
+    let clientQuery;
     try {
       const u = new URL(req.originalUrl || req.url, 'http://pool.invalid');
       targetPath = u.pathname + u.search;
+      clientPathname = u.pathname;
+      clientQuery = u.searchParams;
       if (!targetPath.startsWith('/v1')) throw new Error('outside /v1');
     } catch {
       return jsonError(res, 400, 'invalid request target');
+    }
+
+    // ----- inbound protocol translation (Anthropic / Responses / Gemini) -----
+    const route = detectRoute(clientPathname);
+    let adapter = null;
+    let adapterCtx = null;
+
+    const sendError = (status, message) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.status(status).json(adapter ? adapter.errorBody(status, message) : { error: { message, type: 'pool_error' } });
+    };
+
+    if (route) {
+      adapter = route.adapter;
+      // token counting is answered locally — no upstream call, no key spent
+      if (route.action === 'count_tokens') {
+        return res.json(estimateAnthropicTokens(parsedBody || {}));
+      }
+      if (route.action === 'countTokens') {
+        return res.json(estimateGeminiTokens(parsedBody || {}));
+      }
+      if (!parsedBody) {
+        return sendError(400, 'request body must be JSON');
+      }
+      try {
+        const converted = adapter.name === 'gemini'
+          ? adapter.toChat(parsedBody, { model: route.model, stream: route.action === 'streamGenerateContent' })
+          : adapter.toChat(parsedBody);
+        adapterCtx = {
+          model: converted.model,
+          stream: !!converted.stream,
+          sse: adapter.name === 'gemini'
+            ? String(clientQuery.get('alt') || '').toLowerCase() === 'sse'
+            : true,
+        };
+        if (converted.stream) converted.stream_options = { include_usage: true };
+        parsedBody = converted;
+        model = converted.model;
+        streamRequested = !!converted.stream;
+        rawBody = Buffer.from(JSON.stringify(converted));
+        targetPath = '/v1/chat/completions';
+      } catch (err) {
+        return sendError(err.status || 400, err.message || 'invalid request');
+      }
     }
 
     const id = genId('req');
@@ -192,7 +256,8 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       id,
       ts: started,
       method: req.method,
-      path: targetPath.split('?')[0],
+      path: clientPathname,
+      api: adapter ? adapter.name : 'openai',
       model,
       stream: streamRequested,
       channelId: null,
@@ -216,7 +281,8 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         id,
         ts: started,
         method: req.method,
-        path: targetPath.split('?')[0],
+        path: clientPathname,
+        api: adapter ? adapter.name : 'openai',
         model,
         stream: streamRequested,
         channelId: live.channelId,
@@ -225,6 +291,8 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         keyMasked: live.keyMasked,
         attempts: live.attempts,
         latencyMs: Date.now() - started,
+        ttftMs: null,
+        tokensPerSec: null,
         retriesDetail,
         promptTokens: 0,
         completionTokens: 0,
@@ -233,6 +301,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         ...fields,
       };
       stats.requestFinished(entry);
+      store.recordDaily(entry);
       events.broadcast('request', { phase: 'end', entry });
     };
 
@@ -256,7 +325,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
           ? `last upstream failure: ${lastFailure.statusCode || ''} ${lastFailure.message || ''}`.trim()
           : 'no enabled channel/key matches this request';
         finish({ status: 'error', statusCode: 503, error: `no available upstream keys (${detail})` });
-        jsonError(res, 503, `no available upstream keys for model "${model ?? 'unknown'}" — ${detail}`);
+        sendError(503, `no available upstream keys for model "${model ?? 'unknown'}" — ${detail}`);
         return;
       }
 
@@ -285,6 +354,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         if (!REQUEST_SKIP.has(name.toLowerCase())) headers[name] = value;
       }
       headers['accept-encoding'] = 'identity';
+      if (adapter) headers['content-type'] = 'application/json';
       headers[(channel.keyHeader || 'Authorization').toLowerCase()] = `${channel.keyPrefix ?? 'Bearer '}${key.key}`;
 
       let body = rawBody;
@@ -312,7 +382,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       let upstream;
       try {
         upstream = await undiciRequest(url, {
-          method: req.method,
+          method: adapter ? 'POST' : req.method,
           headers,
           body: body ?? undefined,
           dispatcher: getDispatcher(channel.proxy || config.globalProxy, settings.connectTimeoutMs),
@@ -334,7 +404,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         retriesDetail.push({ channelName: channel.name, keyMasked: live.keyMasked, statusCode: 0, error: message });
         if (attempt < maxAttempts) continue;
         finish({ status: 'error', statusCode: 502, error: message });
-        jsonError(res, 502, `upstream request failed after ${attempt} attempt(s): ${message}`);
+        sendError(502, `upstream request failed after ${attempt} attempt(s): ${message}`);
         return;
       }
 
@@ -362,19 +432,17 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       }
 
       // ----- forward this response (success, non-retryable, or out of retries) -----
-      if (!res.headersSent) {
-        res.status(statusCode);
-        for (const [name, value] of Object.entries(upstream.headers)) {
-          if (!HOP_BY_HOP.has(name.toLowerCase())) res.setHeader(name, value);
-        }
-        res.setHeader('x-pool-attempts', String(attempt));
-        res.setHeader('x-pool-channel', sanitizeHeaderValue(channel.name));
-        res.flushHeaders?.();
-      }
-
+      const contentType = String(upstream.headers['content-type'] || '').toLowerCase();
+      const upstreamIsSse = contentType.includes('text/event-stream');
       const scanner = createUsageScanner(upstream.headers['content-type']);
+      let firstByteAt = 0;
+      const feedScanner = (chunk) => {
+        if (!firstByteAt) firstByteAt = Date.now();
+        scanner.feed(chunk);
+      };
+
       let settled = false;
-      const settle = async (kind, errMessage) => {
+      const settle = (kind, errMessage) => {
         if (settled) return;
         settled = true;
         release();
@@ -382,12 +450,19 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         const usage = scanner.result();
         if (kind === 'complete') {
           if (statusCode < 400) {
-            pool.markSuccess(key, headersLatency, usage);
+            const durationMs = Date.now() - attemptStarted;
+            const ttftMs = firstByteAt ? firstByteAt - attemptStarted : headersLatency;
+            const tps = usage.completionTokens > 0 && durationMs > 0
+              ? Math.round((usage.completionTokens / (durationMs / 1000)) * 10) / 10
+              : null;
+            pool.markSuccess(key, { latencyMs: headersLatency, ttftMs, tps }, usage);
             finish({
               status: 'success',
               statusCode,
               promptTokens: usage.promptTokens,
               completionTokens: usage.completionTokens,
+              ttftMs,
+              tokensPerSec: tps,
             });
           } else {
             const snippet = errMessage || `upstream responded ${statusCode}`;
@@ -406,17 +481,151 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         } else {
           pool.markError(key, errMessage || 'upstream stream error');
           finish({ status: 'error', statusCode, error: errMessage || 'upstream stream error' });
-          res.destroy();
+          if (res.headersSent) res.destroy();
+          else sendError(502, errMessage || 'upstream stream error');
         }
       };
 
-      upstream.body.on('data', (chunk) => scanner.feed(chunk));
-      upstream.body.on('end', () => settle('complete'));
-      upstream.body.on('error', (err) => settle('stream_error', `upstream stream error: ${err?.message || err}`));
-      res.on('close', () => {
-        if (!res.writableEnded) settle('client_gone');
-      });
-      upstream.body.pipe(res);
+      if (!adapter) {
+        // plain OpenAI passthrough — pipe bytes through untouched
+        if (!res.headersSent) {
+          res.status(statusCode);
+          for (const [name, value] of Object.entries(upstream.headers)) {
+            if (!HOP_BY_HOP.has(name.toLowerCase())) res.setHeader(name, value);
+          }
+          res.setHeader('x-pool-attempts', String(attempt));
+          res.setHeader('x-pool-channel', sanitizeHeaderValue(channel.name));
+          res.flushHeaders?.();
+        }
+        upstream.body.on('data', feedScanner);
+        upstream.body.on('end', () => settle('complete'));
+        upstream.body.on('error', (err) => settle('stream_error', `upstream stream error: ${err?.message || err}`));
+        res.on('close', () => {
+          if (!res.writableEnded) settle('client_gone');
+        });
+        upstream.body.pipe(res);
+        return;
+      }
+
+      // ----- adapter: translate the upstream response into the caller's protocol -----
+      if (!res.headersSent) {
+        res.setHeader('x-pool-attempts', String(attempt));
+        res.setHeader('x-pool-channel', sanitizeHeaderValue(channel.name));
+      }
+
+      const bufferBody = async () => {
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of upstream.body) {
+          feedScanner(chunk);
+          size += chunk.length;
+          if (size > MAX_TRANSLATED_BODY) {
+            upstream.body.destroy?.();
+            throw new Error('upstream response too large to translate');
+          }
+          chunks.push(chunk);
+        }
+        return Buffer.concat(chunks).toString('utf8');
+      };
+
+      if (statusCode >= 400) {
+        // error → protocol-shaped error body
+        const snippet = await readSnippet(upstream.body, 4096);
+        const message = upstreamErrorMessage(snippet, `upstream responded ${statusCode}`);
+        if (!res.headersSent) res.status(statusCode).json(adapter.errorBody(statusCode, message));
+        settle('complete', `${statusCode} ${message}`.slice(0, 300));
+        return;
+      }
+
+      if (adapterCtx.stream) {
+        const translator = adapter.createStream(adapterCtx, (s) => {
+          if (!res.writableEnded) res.write(s);
+        });
+        if (!res.headersSent) {
+          res.status(200);
+          if (adapterCtx.sse) {
+            res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+            res.setHeader('cache-control', 'no-cache');
+            res.setHeader('x-accel-buffering', 'no');
+          } else {
+            res.setHeader('content-type', 'application/json; charset=utf-8');
+          }
+          res.flushHeaders?.();
+        }
+        res.on('close', () => {
+          if (!res.writableEnded) settle('client_gone');
+        });
+        if (upstreamIsSse) {
+          const parser = createSseParser((obj) => translator.feed(obj));
+          upstream.body.on('data', (chunk) => {
+            feedScanner(chunk);
+            try {
+              parser.feed(chunk);
+            } catch {
+              /* a malformed frame must not kill the stream */
+            }
+          });
+          upstream.body.on('end', () => {
+            try {
+              parser.end();
+              translator.done();
+            } catch {
+              /* ignore */
+            }
+            if (!res.writableEnded) res.end();
+            settle('complete');
+          });
+          upstream.body.on('error', (err) => settle('stream_error', `upstream stream error: ${err?.message || err}`));
+        } else {
+          // upstream ignored stream:true and answered with JSON — replay it as a stream
+          let raw;
+          try {
+            raw = await bufferBody();
+          } catch (err) {
+            settle(clientGone ? 'client_gone' : 'stream_error', `upstream stream error: ${err?.message || err}`);
+            return;
+          }
+          let parsed = null;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            /* handled below */
+          }
+          if (!parsed || typeof parsed !== 'object') {
+            settle('stream_error', 'upstream returned invalid JSON');
+            return;
+          }
+          try {
+            simulateStream(parsed, translator);
+          } catch {
+            /* partial output is still better than a dead socket */
+          }
+          if (!res.writableEnded) res.end();
+          settle('complete');
+        }
+        return;
+      }
+
+      // non-streaming: buffer the chat completion, convert, reply
+      let raw;
+      try {
+        raw = await bufferBody();
+      } catch (err) {
+        settle(clientGone ? 'client_gone' : 'stream_error', `upstream stream error: ${err?.message || err}`);
+        return;
+      }
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        /* handled below */
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        settle('stream_error', 'upstream returned invalid JSON');
+        return;
+      }
+      if (!res.headersSent) res.status(200).json(adapter.fromChat(parsed, adapterCtx));
+      settle('complete');
       return;
     }
   };

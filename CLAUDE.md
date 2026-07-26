@@ -10,7 +10,7 @@ Self-hosted LLM API key pool (Express + vanilla JS SPA). No build step, no TypeS
 
 ## Layout
 
-- `src/` — Express backend. `index.js` wires everything; `routes/admin.js` is the admin API; `proxy.js` the `/v1` passthrough; `pool.js` channels/keys; `scheduler.js` key selection; `store.js` JSON persistence under `data/`.
+- `src/` — Express backend. `index.js` wires everything; `routes/admin.js` is the admin API; `proxy.js` the `/v1` + `/v1beta` proxy; `adapters.js` translates inbound Anthropic/Responses/Gemini protocols to the OpenAI upstream (requests, responses and SSE streams); `pool.js` channels/keys; `scheduler.js` key selection; `store.js` JSON persistence under `data/`.
 - `public/` — dashboard SPA: `index.html` (shell), `app.js` (all views as template strings, event delegation via `data-action`), `style.css`, `i18n.js` (English keys → zh-CN; every user-visible string must go through `t()` and get a zh-CN entry).
 
 ## Deployment (IMPORTANT — auto-deploy rule)

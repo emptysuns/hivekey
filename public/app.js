@@ -88,6 +88,8 @@ const store = {
   expandedChannel: null,
   selectedKeys: new Set(),
   channelFilter: '',
+  keyPanelState: {},        // channelId -> {q, page}
+  modalKeys: { q: '', page: 1, status: '' },
   channelTest: {},          // channelId -> {state, ok, statusCode, latencyMs, error}
   tokens: [],
   logs: [],
@@ -99,6 +101,37 @@ const store = {
   sse: { es: null, connected: false, retryMs: 1000, timer: null },
   dashTimer: null,
 };
+
+/* ============================================================
+ * Theme (dark / light / auto)
+ * ============================================================ */
+
+function getTheme() {
+  try {
+    const saved = localStorage.getItem('hivekey-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch (e) { /* storage unavailable */ }
+  return 'auto';
+}
+
+function applyTheme(theme) {
+  if (theme !== 'light' && theme !== 'dark') theme = 'auto';
+  try { localStorage.setItem('hivekey-theme', theme); } catch (e) { /* ignore */ }
+  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  $$('[data-theme-opt]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.themeOpt === theme);
+  });
+  if (store.route === 'dashboard') drawHistoryChart(); // canvas colors come from CSS vars
+}
+
+// auto mode follows the OS: redraw the canvas chart when the OS scheme flips
+try {
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const onScheme = () => { if (getTheme() === 'auto') applyTheme('auto'); };
+  if (mq.addEventListener) mq.addEventListener('change', onScheme);
+  else if (mq.addListener) mq.addListener(onScheme);
+} catch (e) { /* matchMedia unavailable */ }
 
 /* ============================================================
  * API helper
@@ -440,6 +473,13 @@ async function renderDashboard() {
         '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th></tr></thead>' +
         '<tbody id="recent-tbody"></tbody>' +
       '</table></div>' +
+    '</div>' +
+    '<div class="card flush">' +
+      '<div class="card-head"><h3>' + esc(t('Daily usage (last 14 days)')) + '</h3></div>' +
+      '<div class="table-scroll"><table>' +
+        '<thead><tr><th>' + esc(t('Date')) + '</th><th class="num">' + esc(t('Requests')) + '</th><th class="num">' + esc(t('Success')) + '</th><th class="num">' + esc(t('Failed')) + '</th><th class="num">' + esc(t('Prompt tokens')) + '</th><th class="num">' + esc(t('Completion tokens')) + '</th></tr></thead>' +
+        '<tbody id="daily-tbody"></tbody>' +
+      '</table></div>' +
     '</div>';
 
   renderDashStats();
@@ -497,6 +537,8 @@ function renderDashStats() {
       t('{ok} ok / {failed} failed', { ok: fmtNum(tot.success || 0), failed: fmtNum(tot.failed || 0) })) +
     statTile(t('Requests / min'), (ov.rpm != null ? Number(ov.rpm).toFixed(1) : '–')) +
     statTile(t('Avg latency'), fmtMs(ov.avgLatencyMs)) +
+    statTile(t('Avg first token'), (ov.avgTtftMs ? fmtMs(ov.avgTtftMs) : '–'), t('time to first byte')) +
+    statTile(t('Avg throughput'), (ov.avgTps ? Number(ov.avgTps).toFixed(1) : '–'), t('tokens / sec')) +
     statTile(t('In flight'), fmtNum(tot.inflight || 0), t('{n} retries total', { n: fmtNum(tot.retries || 0) })) +
     statTile(t('Tokens used'), fmtNum(tokens),
       t('{p} prompt / {c} completion', { p: fmtNum(tot.promptTokens || 0), c: fmtNum(tot.completionTokens || 0) })) +
@@ -512,6 +554,29 @@ function renderDashStats() {
       (ov.channelCount != null ? ' · ' + t('{n} channels', { n: ov.channelCount }) : '');
   }
   renderProblemBanner();
+  renderDailyTable();
+}
+
+function renderDailyTable() {
+  const tbody = $('#daily-tbody');
+  if (!tbody) return;
+  const daily = (store.overview && store.overview.daily) || [];
+  // newest first; always show the last 7 days, older ones only when non-empty
+  const rows = daily.slice().reverse().filter((d, i) => i < 7 || d.requests > 0);
+  if (!rows.length || rows.every((d) => !d.requests)) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">' + esc(t('No traffic yet')) + '</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((d) =>
+    '<tr>' +
+      '<td class="mono small">' + esc(d.date) + '</td>' +
+      '<td class="num">' + fmtNum(d.requests) + '</td>' +
+      '<td class="num ok-text">' + fmtNum(d.success) + '</td>' +
+      '<td class="num' + (d.failed ? ' err-text' : '') + '">' + fmtNum(d.failed) + '</td>' +
+      '<td class="num">' + fmtNum(d.promptTokens) + '</td>' +
+      '<td class="num">' + fmtNum(d.completionTokens) + '</td>' +
+    '</tr>'
+  ).join('');
 }
 
 function statTile(label, value, sub) {
@@ -597,8 +662,14 @@ function drawHistoryChart() {
   const padL = 38, padR = 6, padT = 10, padB = 22;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const baseY = padT + plotH;
-  const cGrid = '#2c2c2a', cBase = '#383835', cMuted = '#898781';
-  const cGood = '#0ca30c', cCrit = '#d03b3b';
+  // pull colors from the active theme so the canvas follows light/dark
+  const css = getComputedStyle(document.documentElement);
+  const cssVar = (name, fallback) => (css.getPropertyValue(name) || '').trim() || fallback;
+  const cGrid = cssVar('--grid', '#2c2c2a');
+  const cBase = cssVar('--baseline', '#383835');
+  const cMuted = cssVar('--muted', '#898781');
+  const cGood = cssVar('--good', '#0ca30c');
+  const cCrit = cssVar('--crit', '#d03b3b');
   ctx.font = '11px system-ui, sans-serif';
 
   const maxV = Math.max(1, ...hist.map((b) =>
@@ -888,25 +959,66 @@ function renderChannelsTable() {
   updateBatchBar();
 }
 
-/* ----- key panel ----- */
+/* ----- key panel (search + pagination over possibly thousands of keys) ----- */
+
+const KEYS_PAGE_SIZE = 20;
+const MODAL_KEYS_PAGE_SIZE = 8;
+
+function keyPanelState(chId) {
+  let st = store.keyPanelState[chId];
+  if (!st) {
+    st = { q: '', page: 1 };
+    store.keyPanelState[chId] = st;
+  }
+  return st;
+}
+
+function keySearchMatch(k, q) {
+  if (!q) return true;
+  const st = k.stats || {};
+  return String(k.key || '').toLowerCase().indexOf(q) >= 0 ||
+    String(st.lastError || '').toLowerCase().indexOf(q) >= 0 ||
+    String(k.status || '').indexOf(q) >= 0;
+}
+
+function pageSlice(list, page, size) {
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const p = Math.min(Math.max(1, page), pages);
+  return { items: list.slice((p - 1) * size, p * size), page: p, pages };
+}
+
+/** Filtered + paged view of a channel's keys (null while still loading). */
+function visibleKeys(chId) {
+  const keys = store.keysByChannel[chId];
+  if (!Array.isArray(keys)) return null;
+  const st = keyPanelState(chId);
+  const filtered = keys.filter((k) => keySearchMatch(k, st.q.trim().toLowerCase()));
+  const sliced = pageSlice(filtered, st.page, KEYS_PAGE_SIZE);
+  st.page = sliced.page;
+  return { filtered: filtered, items: sliced.items, page: sliced.page, pages: sliced.pages };
+}
 
 function keyPanelHtml(ch) {
   const reveal = !!store.revealKeys[ch.id];
+  const st = keyPanelState(ch.id);
   return '<div class="key-panel">' +
     '<div class="key-toolbar">' +
       '<strong>' + esc(t('Keys · {name}', { name: ch.name })) + '</strong>' +
+      '<input type="search" data-keys-search data-id="' + esc(ch.id) + '" placeholder="' + esc(t('Search keys…')) + '" value="' + esc(st.q) + '">' +
       '<label class="checklab"><input type="checkbox" data-reveal data-id="' + esc(ch.id) + '"' + (reveal ? ' checked' : '') + '> ' + esc(t('Reveal keys')) + '</label>' +
       '<span class="spacer"></span>' +
+      '<button class="btn btn-sm" data-action="keys-test-all" data-id="' + esc(ch.id) + '">' + esc(t('Test all keys')) + '</button>' +
       '<button class="btn btn-sm btn-danger" data-action="keys-delete-selected" data-id="' + esc(ch.id) + '" disabled>' + esc(t('Delete selected')) + '</button>' +
     '</div>' +
     '<div class="table-scroll"><table>' +
       '<thead><tr>' +
         '<th style="width:28px"><input type="checkbox" data-keysel-all data-id="' + esc(ch.id) + '"></th>' +
         '<th>' + esc(t('Key')) + '</th><th>' + esc(t('Status')) + '</th><th class="num">' + esc(t('Req')) + '</th><th class="num">' + esc(t('OK')) + '</th><th class="num">' + esc(t('Fail')) + '</th>' +
-        '<th class="num">429</th><th class="num">' + esc(t('Latency')) + '</th><th>' + esc(t('Last error')) + '</th><th>' + esc(t('Actions')) + '</th>' +
+        '<th class="num">429</th><th class="num">' + esc(t('Latency')) + '</th><th class="num">' + esc(t('TTFT')) + '</th><th class="num">' + esc(t('tok/s')) + '</th><th>' + esc(t('Last error')) + '</th><th>' + esc(t('Actions')) + '</th>' +
       '</tr></thead>' +
       '<tbody id="keys-tbody-' + esc(ch.id) + '">' + keysRowsHtml(ch.id) + '</tbody>' +
     '</table></div>' +
+    '<div class="pager" id="keys-pager-' + esc(ch.id) + '">' + keysPagerHtml(ch.id) + '</div>' +
     '<div class="key-import">' +
       '<textarea id="import-keys-' + esc(ch.id) + '" rows="3" placeholder="sk-...&#10;sk-...&#10;' + esc(t('(one key per line)')) + '"></textarea>' +
       '<div class="side">' +
@@ -918,14 +1030,18 @@ function keyPanelHtml(ch) {
 }
 
 function keysRowsHtml(chId) {
-  const keys = store.keysByChannel[chId];
-  if (keys === undefined) {
-    return '<tr><td colspan="10" class="empty">' + esc(t('Loading keys…')) + '</td></tr>';
+  const v = visibleKeys(chId);
+  if (v === null) {
+    return '<tr><td colspan="12" class="empty">' + esc(t('Loading keys…')) + '</td></tr>';
   }
+  const keys = store.keysByChannel[chId] || [];
   if (!keys.length) {
-    return '<tr><td colspan="10" class="empty">' + esc(t('No keys in this channel. Import some below.')) + '</td></tr>';
+    return '<tr><td colspan="12" class="empty">' + esc(t('No keys in this channel. Import some below.')) + '</td></tr>';
   }
-  return keys.map((k) => {
+  if (!v.filtered.length) {
+    return '<tr><td colspan="12" class="empty">' + esc(t('No keys match your search.')) + '</td></tr>';
+  }
+  return v.items.map((k) => {
     const st = k.stats || {};
     const checked = store.selectedKeys.has(k.id);
     const failWarn = (st.requests || 0) >= 10 && (st.failed || 0) / st.requests >= 0.5;
@@ -940,6 +1056,8 @@ function keysRowsHtml(chId) {
         fmtNum(st.failed || 0) + '</td>' +
       '<td class="num">' + fmtNum(st.count429 || 0) + '</td>' +
       '<td class="num">' + fmtMs(st.ewmaLatencyMs) + '</td>' +
+      '<td class="num">' + (st.ewmaTtftMs ? fmtMs(st.ewmaTtftMs) : '–') + '</td>' +
+      '<td class="num">' + (st.ewmaTps ? Number(st.ewmaTps).toFixed(1) : '–') + '</td>' +
       '<td class="err-cell" title="' + esc(st.lastError || '') + '">' + esc(truncate(st.lastError || '', 48)) + '</td>' +
       '<td class="actions" data-stop>' +
         '<button class="btn btn-sm" data-action="key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + esc(k.enabled ? t('Disable') : t('Enable')) + '</button>' +
@@ -949,6 +1067,31 @@ function keysRowsHtml(chId) {
         '<span class="test-result" data-test-result="' + esc(k.id) + '"></span>' +
       '</td></tr>';
   }).join('');
+}
+
+function keysPagerHtml(chId) {
+  const v = visibleKeys(chId);
+  if (v === null) return '';
+  const keys = store.keysByChannel[chId] || [];
+  if (!keys.length) return '';
+  let html = '<span class="muted small">' + esc(t('{shown} of {total} keys', { shown: v.filtered.length, total: keys.length })) + '</span>';
+  if (v.pages > 1) {
+    html += '<span class="spacer"></span>' +
+      '<button class="btn btn-sm" data-action="keys-page" data-id="' + esc(chId) + '" data-dir="-1"' + (v.page <= 1 ? ' disabled' : '') + '>&lsaquo;</button>' +
+      '<span class="small muted">' + v.page + ' / ' + v.pages + '</span>' +
+      '<button class="btn btn-sm" data-action="keys-page" data-id="' + esc(chId) + '" data-dir="1"' + (v.page >= v.pages ? ' disabled' : '') + '>&rsaquo;</button>';
+  }
+  return html;
+}
+
+/** Re-render the key rows + pager of an open panel without touching the toolbar
+ *  (so the search input keeps focus while typing). */
+function refreshKeyPanel(chId) {
+  const tbody = document.getElementById('keys-tbody-' + chId);
+  if (tbody) tbody.innerHTML = keysRowsHtml(chId);
+  const pager = document.getElementById('keys-pager-' + chId);
+  if (pager) pager.innerHTML = keysPagerHtml(chId);
+  updateBatchBar();
 }
 
 function keyBadgeHtml(k) {
@@ -975,9 +1118,7 @@ async function loadKeysAndRender(chId) {
     store.keysByChannel[chId] = [];
     toast(e.message, 'error');
   }
-  const tbody = document.getElementById('keys-tbody-' + chId);
-  if (tbody) tbody.innerHTML = keysRowsHtml(chId);
-  updateBatchBar();
+  refreshKeyPanel(chId);
 }
 
 async function refreshChannelsAndKeys(chId) {
@@ -1002,9 +1143,9 @@ function updateBatchBar() {
   }
   const all = document.querySelector('[data-keysel-all]');
   if (all) {
-    const chId = all.dataset.id;
-    const keys = store.keysByChannel[chId] || [];
-    all.checked = keys.length > 0 && keys.every((k) => store.selectedKeys.has(k.id));
+    const v = visibleKeys(all.dataset.id);
+    const items = (v && v.items) || [];
+    all.checked = items.length > 0 && items.every((k) => store.selectedKeys.has(k.id));
   }
 }
 
@@ -1013,6 +1154,7 @@ function updateBatchBar() {
 function openChannelModal(ch) {
   const isEdit = !!ch;
   ch = ch || {};
+  store.modalKeys = { q: '', page: 1, status: '' };
   const mappingJson = ch.modelMapping && Object.keys(ch.modelMapping).length
     ? JSON.stringify(ch.modelMapping, null, 2) : '';
   modelSel = {
@@ -1037,7 +1179,7 @@ function openChannelModal(ch) {
         '<div class="field"><label>' + esc(t('Weight')) + '</label>' +
           '<input name="weight" type="number" step="1" min="0" value="' + esc(ch.weight != null ? ch.weight : 1) + '"></div>' +
 
-        '<div class="form-section span2">' + esc(t('Models')) + ' <span class="muted normalcase">' + esc(t('(empty = serve all models)')) + '</span></div>' +
+        '<div class="form-section span2">' + esc(t('Models')) + ' <span class="muted normalcase">' + esc(t('(empty = all models · trailing * wildcards supported)')) + '</span></div>' +
         '<div class="span2">' +
           '<div class="model-widget" data-model-widget>' +
             '<div class="tag-select" data-model-box></div>' +
@@ -1101,21 +1243,59 @@ function renderModalKeys(chId) {
     box.innerHTML = '<div class="hint" style="margin-bottom:8px">' + esc(t('No keys in this channel. Import some below.')) + '</div>';
     return;
   }
+  const mk = store.modalKeys;
   box.innerHTML =
-    '<div class="modal-keys-list">' +
-    keys.map((k) => {
-      const st = k.stats || {};
-      return '<div class="mk-row">' +
-        '<span class="mono mk-key" title="' + esc(k.key) + '">' + esc(k.key) + '</span>' +
-        keyBadgeHtml(k) +
-        '<span class="muted small mk-stats">' + esc(t('{failed}/{total} failed', { failed: fmtNum(st.failed || 0), total: fmtNum(st.requests || 0) })) + '</span>' +
-        '<span class="spacer"></span>' +
-        '<button type="button" class="btn btn-sm" data-action="modal-key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + esc(k.enabled ? t('Disable') : t('Enable')) + '</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" data-action="modal-key-delete" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Delete')) + '</button>' +
-      '</div>';
-    }).join('') +
+    '<div class="mk-toolbar">' +
+      '<input type="search" data-modal-keys-search data-ch="' + esc(chId) + '" placeholder="' + esc(t('Search keys…')) + '" value="' + esc(mk.q) + '">' +
+      '<select data-modal-keys-status data-ch="' + esc(chId) + '">' +
+        '<option value="">' + esc(t('All statuses')) + '</option>' +
+        ['active', 'cooldown', 'disabled'].map((s) =>
+          '<option value="' + s + '"' + (mk.status === s ? ' selected' : '') + '>' + esc(t(s)) + '</option>').join('') +
+      '</select>' +
     '</div>' +
-    '<div class="hint" style="margin:6px 0 10px">' + esc(t('{n} keys', { n: keys.length })) + '</div>';
+    '<div id="modal-keys-list"></div>';
+  renderModalKeysList(chId);
+}
+
+/** List + pager only — leaves the toolbar (and its focused input) alone. */
+function renderModalKeysList(chId) {
+  const wrap = document.getElementById('modal-keys-list');
+  if (!wrap) return;
+  const keys = store.keysByChannel[chId] || [];
+  const mk = store.modalKeys;
+  const q = mk.q.trim().toLowerCase();
+  const filtered = keys.filter((k) => (!mk.status || k.status === mk.status) && keySearchMatch(k, q));
+  const v = pageSlice(filtered, mk.page, MODAL_KEYS_PAGE_SIZE);
+  mk.page = v.page;
+
+  let html = '';
+  if (!filtered.length) {
+    html += '<div class="hint" style="margin:2px 0 8px">' + esc(t('No keys match your search.')) + '</div>';
+  } else {
+    html += '<div class="modal-keys-list">' +
+      v.items.map((k) => {
+        const st = k.stats || {};
+        return '<div class="mk-row">' +
+          '<span class="mono mk-key" title="' + esc(k.key) + '">' + esc(k.key) + '</span>' +
+          keyBadgeHtml(k) +
+          '<span class="muted small mk-stats">' + esc(t('{failed}/{total} failed', { failed: fmtNum(st.failed || 0), total: fmtNum(st.requests || 0) })) + '</span>' +
+          '<span class="spacer"></span>' +
+          '<button type="button" class="btn btn-sm" data-action="modal-key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + esc(k.enabled ? t('Disable') : t('Enable')) + '</button>' +
+          '<button type="button" class="btn btn-sm btn-danger" data-action="modal-key-delete" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Delete')) + '</button>' +
+        '</div>';
+      }).join('') +
+      '</div>';
+  }
+  html += '<div class="pager" style="margin-bottom:10px">' +
+    '<span class="muted small">' + esc(t('{shown} of {total} keys', { shown: filtered.length, total: keys.length })) + '</span>';
+  if (v.pages > 1) {
+    html += '<span class="spacer"></span>' +
+      '<button type="button" class="btn btn-sm" data-action="modal-keys-page" data-ch="' + esc(chId) + '" data-dir="-1"' + (v.page <= 1 ? ' disabled' : '') + '>&lsaquo;</button>' +
+      '<span class="small muted">' + v.page + ' / ' + v.pages + '</span>' +
+      '<button type="button" class="btn btn-sm" data-action="modal-keys-page" data-ch="' + esc(chId) + '" data-dir="1"' + (v.page >= v.pages ? ' disabled' : '') + '>&rsaquo;</button>';
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
 }
 
 async function submitChannelForm(form) {
@@ -1306,6 +1486,18 @@ async function renderTokens() {
       '</form>' +
       '<p class="hint" style="margin:10px 0 0">' + esc(t('Use this as the Bearer token when calling the pool’s /v1 endpoint.')) + '</p>' +
     '</div>' +
+    '<div class="card">' +
+      '<div class="card-head"><h3>' + esc(t('API endpoints')) + '</h3></div>' +
+      [
+        ['OpenAI SDK', 'POST ' + location.origin + '/v1/chat/completions'],
+        ['OpenAI Responses API', 'POST ' + location.origin + '/v1/responses'],
+        ['Anthropic SDK (Claude)', 'POST ' + location.origin + '/v1/messages'],
+        ['Google Gemini SDK', 'POST ' + location.origin + '/v1beta/models/{model}:generateContent'],
+      ].map((row) =>
+        '<div class="ep-row"><span class="ep-name">' + esc(t(row[0])) + '</span><code class="mono small">' + esc(row[1]) + '</code></div>'
+      ).join('') +
+      '<p class="hint" style="margin:10px 0 0">' + esc(t('Every endpoint accepts the pool access token — as Bearer, x-api-key, x-goog-api-key or ?key=.')) + '</p>' +
+    '</div>' +
     '<div class="card flush"><div class="table-scroll"><table>' +
       '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Token')) + '</th><th>' + esc(t('Enabled')) + '</th><th class="num">' + esc(t('Requests')) + '</th>' +
       '<th>' + esc(t('Created')) + '</th><th>' + esc(t('Last used')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
@@ -1392,8 +1584,8 @@ async function renderLogs() {
     '</div>' +
     '<div class="card flush"><div class="table-scroll"><table>' +
       '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Path')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th>' +
-      '<th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th><th class="num">' + esc(t('Tokens used')) + '</th></tr></thead>' +
-      '<tbody id="logs-tbody"><tr><td colspan="9" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
+      '<th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th><th class="num">' + esc(t('TTFT')) + '</th><th class="num">' + esc(t('Tokens used')) + '</th></tr></thead>' +
+      '<tbody id="logs-tbody"><tr><td colspan="10" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
     '</table></div></div>';
 
   // Channel dropdown needs channel names.
@@ -1422,7 +1614,7 @@ async function fetchLogs() {
     renderLogsTable();
   } catch (e) {
     const tbody = $('#logs-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('Failed to load logs.')) + '</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="empty">' + esc(t('Failed to load logs.')) + '</td></tr>';
     toast(e.message, 'error');
   }
 }
@@ -1455,7 +1647,7 @@ function renderLogsTable() {
   const tbody = $('#logs-tbody');
   if (!tbody) return;
   if (!store.logs.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('No log entries match.')) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">' + esc(t('No log entries match.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.logs.map((en) => {
@@ -1470,10 +1662,11 @@ function renderLogsTable() {
       '<td class="mono">' + esc(en.keyMasked || '–') + '</td>' +
       '<td class="num">' + esc(en.attempts != null ? en.attempts : 1) + '</td>' +
       '<td class="num">' + fmtMs(en.latencyMs) + '</td>' +
+      '<td class="num">' + (Number.isFinite(en.ttftMs) ? fmtMs(en.ttftMs) : '<span class="muted">–</span>') + '</td>' +
       '<td class="num">' + (tokens ? fmtNum(tokens) : '<span class="muted">–</span>') + '</td>' +
       '</tr>';
     if (expanded) {
-      html += '<tr><td colspan="9" class="nopad"><div class="log-detail">' + logDetailHtml(en) + '</div></td></tr>';
+      html += '<tr><td colspan="10" class="nopad"><div class="log-detail">' + logDetailHtml(en) + '</div></td></tr>';
     }
     return html;
   }).join('');
@@ -1482,10 +1675,16 @@ function renderLogsTable() {
 function logDetailHtml(en) {
   let html = '<div><span class="muted">' + esc(t('Request:')) + '</span> <span class="mono">' +
     esc(en.method || 'POST') + ' ' + esc(en.path || '') + '</span>' +
+    (en.api && en.api !== 'openai' ? ' <span class="badge badge-neutral">' + esc(en.api) + '</span>' : '') +
     (en.stream ? ' <span class="badge badge-neutral">' + esc(t('stream')) + '</span>' : '') +
     ' <span class="muted">· id ' + esc(en.id) + '</span></div>';
   html += '<div><span class="muted">' + esc(t('Tokens:')) + '</span> ' +
     esc(t('{p} prompt / {c} completion', { p: fmtNum(en.promptTokens || 0), c: fmtNum(en.completionTokens || 0) })) + '</div>';
+  if (Number.isFinite(en.ttftMs)) {
+    html += '<div><span class="muted">' + esc(t('Performance:')) + '</span> ' +
+      esc(t('first token {t}', { t: fmtMs(en.ttftMs) })) +
+      (en.tokensPerSec ? ' · ' + esc(t('{n} tok/s', { n: en.tokensPerSec })) : '') + '</div>';
+  }
   if (en.error) {
     html += '<div class="err-text"><span class="muted">' + esc(t('Error:')) + '</span> ' + esc(en.error) + '</div>';
   }
@@ -1516,18 +1715,36 @@ function logDetailHtml(en) {
 
 // [value, label key, description key] — labels/descriptions resolve through t()
 const STRATEGIES = [
-  ['adaptive', 'Smart (adaptive)', 'Scores keys by latency, errors and load, picks the best (recommended).'],
+  ['adaptive', 'Smart (adaptive)', 'Scores keys by success rate, first-token speed, throughput and load (recommended).'],
   ['round_robin', 'Round robin', 'Cycles through active keys in fixed order.'],
   ['random', 'Random', 'Picks a uniformly random active key.'],
   ['weighted', 'Weighted', 'Random pick biased by channel weight.'],
   ['least_inflight', 'Least in-flight', 'Prefers the key with the fewest requests in flight.'],
   ['lowest_latency', 'Lowest latency', 'Prefers the key with the lowest recent average latency.'],
+  ['lowest_ttft', 'Fastest first token', 'Prefers the key with the lowest time to first token.'],
+  ['highest_throughput', 'Highest throughput', 'Prefers the key with the highest tokens-per-second output.'],
 ];
 
 async function renderSettings() {
   $('#view').innerHTML =
     '<div class="view-head"><h2>' + esc(t('Settings')) + '</h2></div>' +
-    '<div class="card"><div id="settings-box" class="empty">' + esc(t('Loading…')) + '</div></div>';
+    '<div class="card"><div id="settings-box" class="empty">' + esc(t('Loading…')) + '</div></div>' +
+    '<div class="card">' +
+      '<h3 style="margin-bottom:12px">' + esc(t('Backup & restore')) + '</h3>' +
+      '<div class="backup-row">' +
+        '<button class="btn" data-action="export-data">' + esc(t('Export backup')) + '</button>' +
+        '<span class="hint">' + esc(t('Download all channels, keys, tokens and settings as JSON.')) + '</span>' +
+      '</div>' +
+      '<div class="backup-row">' +
+        '<input type="file" id="import-file" accept=".json,application/json">' +
+        '<select id="import-mode">' +
+          '<option value="merge">' + esc(t('Merge (add new only)')) + '</option>' +
+          '<option value="replace">' + esc(t('Replace everything')) + '</option>' +
+        '</select>' +
+        '<button class="btn" data-action="import-data">' + esc(t('Import backup')) + '</button>' +
+      '</div>' +
+      '<p class="hint" style="margin:4px 0 0">' + esc(t('Merge adds missing channels, keys and tokens. Replace overwrites the whole configuration (admin login is kept).')) + '</p>' +
+    '</div>';
   try {
     store.settings = await api('/api/settings');
     renderSettingsForm();
@@ -1688,9 +1905,88 @@ async function runAction(el) {
       await doLogout();
       break;
 
+    case 'theme-set':
+      applyTheme(el.dataset.themeOpt);
+      break;
+
     case 'modal-close':
       closeModal();
       break;
+
+    case 'keys-page': {
+      const st = keyPanelState(id);
+      st.page += Number(el.dataset.dir) || 0;
+      refreshKeyPanel(id);
+      break;
+    }
+
+    case 'modal-keys-page':
+      store.modalKeys.page += Number(el.dataset.dir) || 0;
+      renderModalKeysList(chId);
+      break;
+
+    case 'keys-test-all': {
+      const keys = store.keysByChannel[id] || [];
+      if (!keys.length) { toast('No keys in this channel. Import some below.', 'error'); return; }
+      const r = await withBusy(el, () => api('/api/channels/' + encodeURIComponent(id) + '/test-keys', { method: 'POST', body: {} }));
+      ((r && r.results) || []).forEach((tr) => {
+        const out = document.querySelector('[data-test-result="' + cssEsc(tr.keyId) + '"]');
+        if (!out) return; // key not on the current page
+        if (tr.ok) {
+          out.textContent = 'OK · ' + tr.statusCode + ' · ' + fmtMs(tr.latencyMs);
+          out.className = 'test-result ok-text';
+        } else {
+          out.textContent = t('Failed') +
+            (tr.statusCode ? ' · ' + tr.statusCode : '') +
+            (tr.error ? ' · ' + truncate(tr.error, 60) : '');
+          out.className = 'test-result err-text';
+        }
+      });
+      toast(t('Key test finished: {ok} ok, {failed} failed', { ok: (r && r.ok) || 0, failed: (r && r.failed) || 0 }),
+        r && r.failed ? 'error' : 'success');
+      break;
+    }
+
+    case 'export-data': {
+      const res = await fetch('/api/export', {
+        credentials: 'same-origin',
+        headers: store.auth.token ? { Authorization: 'Bearer ' + store.auth.token } : {},
+      });
+      if (!res.ok) { toast('Export failed', 'error'); return; }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'hivekey-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      break;
+    }
+
+    case 'import-data': {
+      const fileInput = document.getElementById('import-file');
+      const file = fileInput && fileInput.files && fileInput.files[0];
+      if (!file) { toast('Choose a backup file first', 'error'); return; }
+      const modeSel = document.getElementById('import-mode');
+      const mode = modeSel ? modeSel.value : 'merge';
+      if (mode === 'replace' && !confirm(t('Replace ALL channels, keys and tokens with the backup?'))) return;
+      let data;
+      try {
+        data = JSON.parse(await file.text());
+      } catch (err) {
+        toast('Invalid backup file', 'error');
+        return;
+      }
+      const r = await withBusy(el, () => api('/api/import', { method: 'POST', body: { data: data, mode: mode } }));
+      toast(t('Imported: {c} channels, {k} keys, {t} tokens', {
+        c: (r && r.channels) || 0, k: (r && r.keys) || 0, t: (r && r.tokens) || 0,
+      }), 'success');
+      if (fileInput) fileInput.value = '';
+      store.keysByChannel = {};
+      await loadChannelsData();
+      break;
+    }
 
     case 'channel-add':
       openChannelModal(null);
@@ -1941,13 +2237,20 @@ document.addEventListener('change', async (e) => {
       updateBatchBar();
 
     } else if (el.matches('[data-keysel-all]')) {
-      const keys = store.keysByChannel[el.dataset.id] || [];
-      keys.forEach((k) => {
+      // select the keys visible on the current page (post-filter)
+      const v = visibleKeys(el.dataset.id);
+      const items = (v && v.items) || [];
+      items.forEach((k) => {
         if (el.checked) store.selectedKeys.add(k.id);
         else store.selectedKeys.delete(k.id);
       });
-      $$('[data-keysel]').forEach((cb) => { cb.checked = el.checked; });
+      $$('[data-keysel]').forEach((cb) => { cb.checked = store.selectedKeys.has(cb.dataset.keysel); });
       updateBatchBar();
+
+    } else if (el.matches('[data-modal-keys-status]')) {
+      store.modalKeys.status = el.value;
+      store.modalKeys.page = 1;
+      renderModalKeysList(el.dataset.ch);
 
     } else if (el.closest('#logs-filter') && el.name !== 'q') {
       readLogFilters();
@@ -1981,6 +2284,15 @@ document.addEventListener('input', (e) => {
   } else if (e.target.matches('[data-channel-search]')) {
     store.channelFilter = e.target.value;
     renderChannelsTable();
+  } else if (e.target.matches('[data-keys-search]')) {
+    const st = keyPanelState(e.target.dataset.id);
+    st.q = e.target.value;
+    st.page = 1;
+    refreshKeyPanel(e.target.dataset.id);
+  } else if (e.target.matches('[data-modal-keys-search]')) {
+    store.modalKeys.q = e.target.value;
+    store.modalKeys.page = 1;
+    renderModalKeysList(e.target.dataset.ch);
   }
 });
 
@@ -2084,4 +2396,5 @@ window.addEventListener('resize', () => {
 /* ----- routing + boot ----- */
 
 window.addEventListener('hashchange', onRoute);
+applyTheme(getTheme()); // sync the segmented control with the pre-paint theme
 boot();
