@@ -1,4 +1,4 @@
-/* llm-api-pool — admin dashboard (vanilla JS SPA) */
+/* keyswarm — admin dashboard (vanilla JS SPA) */
 'use strict';
 
 /* ============================================================

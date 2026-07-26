@@ -1,7 +1,7 @@
 services:
-  llm-api-pool:
+  keyswarm:
     build: .
-    container_name: llm-api-pool
+    container_name: keyswarm
     ports:
       - "3000:3000"
     environment:

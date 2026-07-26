@@ -1,5 +1,5 @@
 {
-  "name": "llm-api-pool",
+  "name": "keyswarm",
   "version": "1.0.0",
   "description": "Self-hosted LLM API key pool with smart scheduling, automatic retry/failover, proxy support and a real-time web dashboard.",
   "main": "src/index.js",

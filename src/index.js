@@ -48,7 +48,7 @@ function createApp(overrides = {}) {
         if (configured.size) {
           return res.json({
             object: 'list',
-            data: [...configured].sort().map((id) => ({ id, object: 'model', owned_by: 'llm-api-pool' })),
+            data: [...configured].sort().map((id) => ({ id, object: 'model', owned_by: 'keyswarm' })),
           });
         }
       }
@@ -99,7 +99,7 @@ function main() {
   const { app, auth, shutdown } = createApp();
 
   const server = app.listen(config.port, config.host, () => {
-    console.log(`llm-api-pool listening on http://${config.host}:${config.port}`);
+    console.log(`keyswarm listening on http://${config.host}:${config.port}`);
     console.log(`dashboard:     http://localhost:${config.port}/`);
     console.log(`llm endpoint:  http://localhost:${config.port}/v1`);
     console.log(`admin user:    ${auth.adminUsername}`);
