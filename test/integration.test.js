@@ -244,6 +244,37 @@ test('channel creation with inline batch keys', async () => {
   assert.strictEqual(settings.json.maxAttempts, 2);
 });
 
+test('fetch-models: explicit baseUrl+key, channelId fallback, auth failure, bad url', async () => {
+  const explicit = await api('/api/channels/fetch-models', {
+    method: 'POST',
+    body: { baseUrl: mockBase, key: 'good-key-1' },
+  });
+  assert.strictEqual(explicit.status, 200);
+  assert.strictEqual(explicit.json.ok, true);
+  assert.deepStrictEqual(explicit.json.models, ['mock-model']);
+
+  // channelId only — server borrows the channel's baseUrl and one of its keys
+  const viaChannel = await api('/api/channels/fetch-models', {
+    method: 'POST',
+    body: { channelId: mainChannelId },
+  });
+  assert.strictEqual(viaChannel.json.ok, true);
+  assert.deepStrictEqual(viaChannel.json.models, ['mock-model']);
+
+  const badKey = await api('/api/channels/fetch-models', {
+    method: 'POST',
+    body: { baseUrl: mockBase, key: 'invalid-key' },
+  });
+  assert.strictEqual(badKey.json.ok, false);
+  assert.strictEqual(badKey.json.statusCode, 401);
+
+  const badUrl = await api('/api/channels/fetch-models', {
+    method: 'POST',
+    body: { baseUrl: 'ftp://nope' },
+  });
+  assert.strictEqual(badUrl.status, 400);
+});
+
 test('proxies a simple completion and records usage', async () => {
   const res = await fetch(`${base}/v1/chat/completions`, {
     method: 'POST',

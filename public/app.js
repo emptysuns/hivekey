@@ -121,7 +121,7 @@ async function api(path, opts) {
   try {
     res = await fetch(path, init);
   } catch (e) {
-    throw new Error(t('Network error — is the server running?'));
+    throw new Error(t('Network error. Is the server running?'));
   }
 
   if (res.status === 401 && !opts.noAuthHandler) onUnauthorized();
@@ -213,7 +213,7 @@ function onUnauthorized() {
   clearDashTimer();
   closeModal();
   showLogin();
-  if (wasIn) toast('Session expired — please sign in again', 'error');
+  if (wasIn) toast('Session expired. Please sign in again.', 'error');
 }
 
 async function doLogin(form) {
@@ -424,14 +424,14 @@ async function renderDashboard() {
       '<div class="chart-band hidden" id="chart-band"></div>' +
       '<div class="chart-tip hidden" id="chart-tip"></div></div>' +
     '</div>' +
-    '<div class="card">' +
+    '<div class="card flush">' +
       '<div class="card-head"><h3>' + esc(t('Live requests')) + ' <span class="muted small" id="live-count"></span></h3></div>' +
       '<div class="table-scroll"><table>' +
         '<thead><tr><th>' + esc(t('Started')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Elapsed')) + '</th></tr></thead>' +
         '<tbody id="live-tbody"></tbody>' +
       '</table></div>' +
     '</div>' +
-    '<div class="card">' +
+    '<div class="card flush">' +
       '<div class="card-head"><h3>' + esc(t('Recent requests')) + '</h3></div>' +
       '<div class="table-scroll"><table>' +
         '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th><th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th></tr></thead>' +
@@ -740,7 +740,7 @@ async function renderChannels() {
   $('#view').innerHTML =
     '<div class="view-head"><h2>' + esc(t('Channels')) + '</h2>' +
     '<button class="btn btn-primary" data-action="channel-add">' + esc(t('+ Add channel')) + '</button></div>' +
-    '<div class="card"><div class="table-scroll"><table>' +
+    '<div class="card flush"><div class="table-scroll"><table>' +
       '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Base URL')) + '</th><th class="num">' + esc(t('Priority')) + '</th><th class="num">' + esc(t('Weight')) + '</th>' +
       '<th class="num">' + esc(t('Keys')) + '</th><th>' + esc(t('Requests')) + '</th><th>' + esc(t('Enabled')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
       '<tbody id="channels-tbody"><tr><td colspan="8" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
@@ -767,7 +767,7 @@ function renderChannelsTable() {
   const tbody = $('#channels-tbody');
   if (!tbody) return;
   if (!store.channels.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('No channels yet — add one to start routing requests.')) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('No channels yet. Add one to start routing requests.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.channels.map((ch) => {
@@ -802,7 +802,7 @@ function keyPanelHtml(ch) {
   const reveal = !!store.revealKeys[ch.id];
   return '<div class="key-panel">' +
     '<div class="key-toolbar">' +
-      '<strong>' + esc(t('Keys — {name}', { name: ch.name })) + '</strong>' +
+      '<strong>' + esc(t('Keys · {name}', { name: ch.name })) + '</strong>' +
       '<label class="checklab"><input type="checkbox" data-reveal data-id="' + esc(ch.id) + '"' + (reveal ? ' checked' : '') + '> ' + esc(t('Reveal keys')) + '</label>' +
       '<span class="spacer"></span>' +
       '<button class="btn btn-sm btn-danger" data-action="keys-delete-selected" data-id="' + esc(ch.id) + '" disabled>' + esc(t('Delete selected')) + '</button>' +
@@ -831,7 +831,7 @@ function keysRowsHtml(chId) {
     return '<tr><td colspan="10" class="empty">' + esc(t('Loading keys…')) + '</td></tr>';
   }
   if (!keys.length) {
-    return '<tr><td colspan="10" class="empty">' + esc(t('No keys in this channel — import some below.')) + '</td></tr>';
+    return '<tr><td colspan="10" class="empty">' + esc(t('No keys in this channel. Import some below.')) + '</td></tr>';
   }
   return keys.map((k) => {
     const st = k.stats || {};
@@ -936,6 +936,13 @@ function openChannelModal(ch) {
           '<input name="weight" type="number" step="1" min="0" value="' + esc(ch.weight != null ? ch.weight : 1) + '"></div>' +
         '<div class="field span2"><label>' + esc(t('Models')) + ' <span class="muted">' + esc(t('(comma-separated; empty = all)')) + '</span></label>' +
           '<input name="models" value="' + esc((ch.models || []).join(', ')) + '" placeholder="gpt-4o, gpt-4o-mini"></div>' +
+        '<div class="span2">' +
+          '<div class="fetch-models-row">' +
+            '<button type="button" class="btn btn-sm" data-action="fetch-models"' + (isEdit ? ' data-id="' + esc(ch.id) + '"' : '') + '>' + esc(t('Fetch models')) + '</button>' +
+            '<span class="hint" id="fetch-models-hint">' + esc(t('Pulls /v1/models from the Base URL above.')) + '</span>' +
+          '</div>' +
+          '<div id="model-picker" class="model-picker hidden"></div>' +
+        '</div>' +
         '<div class="field span2"><label>' + esc(t('Model mapping')) + ' <span class="muted">' + esc(t('(JSON, requested → upstream)')) + '</span></label>' +
           '<textarea name="modelMapping" rows="3" placeholder=\'{"gpt-4o": "gpt-4o-2024-11-20"}\'>' + esc(mappingJson) + '</textarea></div>' +
         '<div class="field"><label>' + esc(t('Key header')) + '</label>' +
@@ -997,6 +1004,106 @@ async function submitChannelForm(form) {
   await refreshChannelsAndKeys(store.expandedChannel);
 }
 
+/* ----- model picker (fetch /v1/models from the upstream) ----- */
+
+async function fetchModelsForForm(btn) {
+  const form = document.getElementById('channel-form');
+  if (!form) return;
+  const f = form.elements;
+  const hint = document.getElementById('fetch-models-hint');
+  const setHint = (text, isErr) => {
+    if (hint) { hint.textContent = text; hint.className = 'hint' + (isErr ? ' err-text' : ''); }
+  };
+  const baseUrl = f.baseUrl.value.trim();
+  if (!baseUrl) {
+    setHint(t('Enter a Base URL first'), true);
+    return;
+  }
+  const body = {
+    baseUrl: baseUrl,
+    proxy: f.proxy.value.trim(),
+    keyHeader: f.keyHeader.value,
+    keyPrefix: f.keyPrefix.value,
+  };
+  if (form.dataset.id) body.channelId = form.dataset.id;
+  // In add mode, borrow the first pasted key for the probe.
+  if (f.keys && f.keys.value.trim()) {
+    body.key = f.keys.value.split('\n').map((s) => s.trim()).filter(Boolean)[0];
+  }
+  setHint(t('Fetching…'), false);
+  try {
+    const r = await withBusy(btn, () => api('/api/channels/fetch-models', { method: 'POST', body }));
+    if (!r || !r.ok) {
+      setHint(t('Fetch failed') +
+        (r && r.statusCode ? ' · ' + r.statusCode : '') +
+        (r && r.error ? ' · ' + truncate(r.error, 90) : ''), true);
+      return;
+    }
+    setHint(t('{n} models · {ms}', { n: r.models.length, ms: fmtMs(r.latencyMs) }), false);
+    renderModelPicker(r.models || [], f.models.value);
+  } catch (err) {
+    setHint(truncate(err.message, 110), true);
+  }
+}
+
+function renderModelPicker(models, currentCsv) {
+  const box = document.getElementById('model-picker');
+  if (!box) return;
+  if (!models.length) {
+    box.innerHTML = '<div class="empty">' + esc(t('The endpoint returned no models.')) + '</div>';
+    box.classList.remove('hidden');
+    return;
+  }
+  const selected = new Set(currentCsv.split(',').map((s) => s.trim()).filter(Boolean));
+  box.innerHTML =
+    '<div class="model-picker-head">' +
+      '<label class="checklab"><input type="checkbox" data-model-all> ' + esc(t('Select all')) + '</label>' +
+      '<input type="search" data-model-search placeholder="' + esc(t('Filter…')) + '">' +
+      '<span class="count" data-model-count></span>' +
+    '</div>' +
+    '<div class="model-list">' +
+      models.map((m) =>
+        '<label class="model-item"><input type="checkbox" data-model-cb value="' + esc(m) + '"' +
+        (selected.has(m) ? ' checked' : '') + '><span title="' + esc(m) + '">' + esc(m) + '</span></label>'
+      ).join('') +
+    '</div>' +
+    '<div class="model-picker-foot">' +
+      '<span class="hint">' + esc(t('Ticked models fill the field above.')) + '</span>' +
+      '<button type="button" class="btn btn-sm" data-action="models-cancel">' + esc(t('Cancel')) + '</button>' +
+      '<button type="button" class="btn btn-sm btn-primary" data-action="models-apply">' + esc(t('Apply selection')) + '</button>' +
+    '</div>';
+  box.classList.remove('hidden');
+  updateModelPickerCount();
+}
+
+function updateModelPickerCount() {
+  const box = document.getElementById('model-picker');
+  if (!box) return;
+  const cbs = $$('[data-model-cb]', box);
+  const sel = cbs.filter((cb) => cb.checked).length;
+  const count = box.querySelector('[data-model-count]');
+  if (count) count.textContent = t('{sel} / {total} selected', { sel: sel, total: cbs.length });
+  const all = box.querySelector('[data-model-all]');
+  if (all) {
+    const visible = cbs.filter((cb) => !cb.closest('.model-item').classList.contains('hidden'));
+    all.checked = visible.length > 0 && visible.every((cb) => cb.checked);
+  }
+}
+
+function applyModelPicker() {
+  const form = document.getElementById('channel-form');
+  const box = document.getElementById('model-picker');
+  if (!form || !box) return;
+  const cbs = $$('[data-model-cb]', box);
+  const fetched = new Set(cbs.map((cb) => cb.value));
+  const checked = cbs.filter((cb) => cb.checked).map((cb) => cb.value);
+  // Preserve hand-typed entries the upstream didn't list (aliases, mapped names).
+  const kept = form.elements.models.value.split(',').map((s) => s.trim()).filter(Boolean)
+    .filter((m) => !fetched.has(m));
+  form.elements.models.value = kept.concat(checked).join(', ');
+  box.classList.add('hidden');
+}
+
 /* ============================================================
  * Tokens
  * ============================================================ */
@@ -1011,7 +1118,7 @@ async function renderTokens() {
       '</form>' +
       '<p class="hint" style="margin:10px 0 0">' + esc(t('Use this as the Bearer token when calling the pool’s /v1 endpoint.')) + '</p>' +
     '</div>' +
-    '<div class="card"><div class="table-scroll"><table>' +
+    '<div class="card flush"><div class="table-scroll"><table>' +
       '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Token')) + '</th><th>' + esc(t('Enabled')) + '</th><th class="num">' + esc(t('Requests')) + '</th>' +
       '<th>' + esc(t('Created')) + '</th><th>' + esc(t('Last used')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
       '<tbody id="tokens-tbody"><tr><td colspan="7" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
@@ -1031,7 +1138,7 @@ function renderTokensTable() {
   const tbody = $('#tokens-tbody');
   if (!tbody) return;
   if (!store.tokens.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(t('No access tokens yet — create one so clients can call /v1.')) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(t('No access tokens yet. Create one so clients can call /v1.')) + '</td></tr>';
     return;
   }
   tbody.innerHTML = store.tokens.map((tk) => {
@@ -1065,7 +1172,7 @@ async function copyText(text) {
       document.execCommand('copy');
       toast('Copied to clipboard', 'success');
     } catch (e2) {
-      toast('Copy failed — select the token manually', 'error');
+      toast('Copy failed. Select the token manually.', 'error');
     }
     ta.remove();
   }
@@ -1095,7 +1202,7 @@ async function renderLogs() {
         '<button type="button" class="btn" data-action="logs-refresh">' + esc(t('Refresh')) + '</button>' +
       '</form>' +
     '</div>' +
-    '<div class="card"><div class="table-scroll"><table>' +
+    '<div class="card flush"><div class="table-scroll"><table>' +
       '<thead><tr><th>' + esc(t('Time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Model')) + '</th><th>' + esc(t('Path')) + '</th><th>' + esc(t('Channel')) + '</th><th>' + esc(t('Key')) + '</th>' +
       '<th class="num">' + esc(t('Attempts')) + '</th><th class="num">' + esc(t('Latency')) + '</th><th class="num">' + esc(t('Tokens used')) + '</th></tr></thead>' +
       '<tbody id="logs-tbody"><tr><td colspan="9" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
@@ -1209,8 +1316,8 @@ function logDetailHtml(en) {
       '</tbody></table></div>';
   } else {
     html += '<div class="muted">' + esc(en.status === 'success'
-      ? t('No retries — first attempt succeeded.')
-      : t('No retries — first attempt failed.')) + '</div>';
+      ? t('No retries. The first attempt succeeded.')
+      : t('No retries. The first attempt failed.')) + '</div>';
   }
   return html;
 }
@@ -1257,7 +1364,7 @@ function renderSettingsForm() {
         '</select>' +
         '<ul class="strategy-list" id="strategy-list">' +
           STRATEGIES.map(([v, label, d]) =>
-            '<li data-strategy="' + v + '"><code>' + esc(t(label)) + '</code> — ' + esc(t(d)) + '</li>').join('') +
+            '<li data-strategy="' + v + '"><code>' + esc(t(label)) + '</code> · ' + esc(t(d)) + '</li>').join('') +
         '</ul>' +
       '</div>' +
       '<div class="form-grid">' +
@@ -1382,6 +1489,20 @@ async function runAction(el) {
     case 'channel-add':
       openChannelModal(null);
       break;
+
+    case 'fetch-models':
+      await fetchModelsForForm(el);
+      break;
+
+    case 'models-apply':
+      applyModelPicker();
+      break;
+
+    case 'models-cancel': {
+      const box = document.getElementById('model-picker');
+      if (box) box.classList.add('hidden');
+      break;
+    }
 
     case 'channel-edit': {
       const ch = store.channels.find((c) => c.id === id);
@@ -1542,6 +1663,19 @@ document.addEventListener('change', async (e) => {
       $$('[data-keysel]').forEach((cb) => { cb.checked = el.checked; });
       updateBatchBar();
 
+    } else if (el.matches('[data-model-all]')) {
+      const box = document.getElementById('model-picker');
+      if (box) {
+        // Toggle only the rows the current filter shows.
+        $$('[data-model-cb]', box).forEach((cb) => {
+          if (!cb.closest('.model-item').classList.contains('hidden')) cb.checked = el.checked;
+        });
+        updateModelPickerCount();
+      }
+
+    } else if (el.matches('[data-model-cb]')) {
+      updateModelPickerCount();
+
     } else if (el.closest('#logs-filter') && el.name !== 'q') {
       readLogFilters();
       await fetchLogs();
@@ -1565,6 +1699,16 @@ document.addEventListener('input', (e) => {
       readLogFilters();
       fetchLogs();
     }, 300);
+  } else if (e.target.matches('[data-model-search]')) {
+    const q = e.target.value.trim().toLowerCase();
+    const box = document.getElementById('model-picker');
+    if (box) {
+      $$('.model-item', box).forEach((item) => {
+        const name = item.querySelector('[data-model-cb]').value.toLowerCase();
+        item.classList.toggle('hidden', q !== '' && name.indexOf(q) < 0);
+      });
+      updateModelPickerCount();
+    }
   }
 });
 
@@ -1602,6 +1746,10 @@ document.addEventListener('submit', async (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#modal-root').classList.contains('hidden')) {
     closeModal();
+  }
+  // Enter in the model filter must not submit the channel form.
+  if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-model-search]')) {
+    e.preventDefault();
   }
 });
 

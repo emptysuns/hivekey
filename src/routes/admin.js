@@ -70,6 +70,74 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
     return res.json({ ok: true });
   });
 
+  // Fetch the model list from an upstream /v1/models. Works before a channel is
+  // saved (baseUrl + key from the form) or for an existing channel (channelId —
+  // falls back to that channel's config and one of its keys).
+  router.post('/channels/fetch-models', async (req, res) => {
+    const b = req.body || {};
+    let { baseUrl, key, proxy, keyHeader, keyPrefix } = b;
+    if (b.channelId) {
+      const channel = pool.channelsById.get(b.channelId);
+      if (!channel) return res.status(404).json({ error: 'channel not found' });
+      baseUrl = baseUrl || channel.baseUrl;
+      if (proxy == null) proxy = channel.proxy;
+      if (keyHeader == null) keyHeader = channel.keyHeader;
+      if (keyPrefix == null) keyPrefix = channel.keyPrefix;
+      if (!key) {
+        const keys = pool.keysByChannel.get(b.channelId) || [];
+        const pick = keys.find((k) => k.enabled && k.status === 'active') || keys.find((k) => k.enabled) || keys[0];
+        if (pick) key = pick.key;
+      }
+    }
+    baseUrl = String(baseUrl || '').trim();
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      return res.status(400).json({ error: 'baseUrl must start with http:// or https://' });
+    }
+    const headers = { 'accept-encoding': 'identity' };
+    if (key) headers[String(keyHeader || 'Authorization').toLowerCase()] = `${keyPrefix ?? 'Bearer '}${key}`;
+    const started = Date.now();
+    try {
+      const upstream = await undiciRequest(`${normalizeBaseUrl(baseUrl)}/v1/models`, {
+        method: 'GET',
+        headers,
+        dispatcher: getDispatcher(proxy || config.globalProxy, store.settings.connectTimeoutMs),
+        headersTimeout: 15_000,
+        bodyTimeout: 15_000,
+      });
+      let raw = '';
+      for await (const chunk of upstream.body) {
+        if (raw.length < 4_000_000) raw += chunk.toString('utf8');
+      }
+      const ok = upstream.statusCode >= 200 && upstream.statusCode < 300;
+      if (!ok) {
+        return res.json({ ok: false, statusCode: upstream.statusCode, latencyMs: Date.now() - started, error: raw.slice(0, 300) });
+      }
+      let models = [];
+      try {
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed) ? parsed
+          : Array.isArray(parsed?.data) ? parsed.data
+          : Array.isArray(parsed?.models) ? parsed.models
+          : [];
+        models = list
+          .map((m) => (typeof m === 'string' ? m : m && (m.id || m.name || m.model)))
+          .filter(Boolean)
+          .map(String);
+      } catch (err) {
+        return res.json({ ok: false, statusCode: upstream.statusCode, latencyMs: Date.now() - started, error: 'upstream returned invalid JSON' });
+      }
+      models = [...new Set(models)].sort((a, b2) => a.localeCompare(b2));
+      return res.json({ ok: true, statusCode: upstream.statusCode, latencyMs: Date.now() - started, models });
+    } catch (err) {
+      return res.json({
+        ok: false,
+        statusCode: 0,
+        latencyMs: Date.now() - started,
+        error: `network error: ${err?.cause?.code || err?.code || err?.message || 'unknown'}`,
+      });
+    }
+  });
+
   // ---------- keys ----------
   router.get('/channels/:id/keys', (req, res) => {
     if (!pool.channelsById.has(req.params.id)) return res.status(404).json({ error: 'channel not found' });

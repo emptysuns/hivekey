@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HiveKey</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231a1a19'/%3E%3Ccircle cx='12' cy='12' r='5.5' fill='%233987e5'/%3E%3Ccircle cx='12' cy='12' r='2.2' fill='%230d0d0d'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23141311'/%3E%3Cpath d='M12 3.4l7.4 4.3v8.6L12 20.6l-7.4-4.3V7.7z' fill='none' stroke='%23f0b429' stroke-width='1.7'/%3E%3Ccircle cx='12' cy='12' r='2.6' fill='%23f0b429'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,10 +13,10 @@
 <div id="login-view" class="hidden">
   <form id="login-form" class="login-card" autocomplete="on">
     <div class="login-brand">
-      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#2a78d6"/><circle cx="12" cy="12" r="5.5" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#2a78d6"/></svg>
+      <svg class="mark" width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l7.4 4.3v8.6L12 20.6l-7.4-4.3V7.7z" fill="none" stroke="#f0b429" stroke-width="1.7"/><circle cx="12" cy="12" r="2.6" fill="#f0b429"/></svg>
       <h1>HiveKey</h1>
     </div>
-    <p class="login-sub" data-i18n="Admin console — sign in to continue">Admin console — sign in to continue</p>
+    <p class="login-sub" data-i18n="Sign in to the admin console">Sign in to the admin console</p>
     <div class="field">
       <label for="login-username" data-i18n="Username">Username</label>
       <input id="login-username" name="username" autocomplete="username" required autofocus>
@@ -25,7 +25,7 @@
       <label for="login-password" data-i18n="Password">Password</label>
       <input id="login-password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button type="submit" class="btn btn-primary" id="login-btn" data-i18n="Sign in">Sign in</button>
+    <button type="submit" class="btn btn-primary btn-block" id="login-btn" data-i18n="Sign in">Sign in</button>
     <div id="login-error" class="login-error hidden"></div>
     <div class="login-lang">
       <select data-lang-sel aria-label="Language">
@@ -40,28 +40,28 @@
 <div id="shell" class="hidden">
   <aside id="sidebar">
     <div class="brand">
-      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#2a78d6"/><circle cx="12" cy="12" r="5.5" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#2a78d6"/></svg>
+      <svg class="mark" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l7.4 4.3v8.6L12 20.6l-7.4-4.3V7.7z" fill="none" stroke="#f0b429" stroke-width="1.7"/><circle cx="12" cy="12" r="2.6" fill="#f0b429"/></svg>
       <span class="brand-name">HiveKey</span>
     </div>
     <nav id="nav">
       <a href="#/dashboard" data-route="dashboard" data-i18n-title="Dashboard" title="Dashboard">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
         <span class="lbl" data-i18n="Dashboard">Dashboard</span>
       </a>
       <a href="#/channels" data-route="channels" data-i18n-title="Channels" title="Channels">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M6.6 7.5h.01M6.6 16.5h.01"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M6.6 7.5h.01M6.6 16.5h.01"/></svg>
         <span class="lbl" data-i18n="Channels">Channels</span>
       </a>
       <a href="#/tokens" data-route="tokens" data-i18n-title="Tokens" title="Access tokens">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4.2"/><path d="M12.2 12H21M17.5 12v3.2M20.9 12v2.2"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4.2"/><path d="M12.2 12H21M17.5 12v3.2M20.9 12v2.2"/></svg>
         <span class="lbl" data-i18n="Tokens">Tokens</span>
       </a>
       <a href="#/logs" data-route="logs" data-i18n-title="Logs" title="Logs">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h.01M4 12h.01M4 18h.01M8.5 6H20M8.5 12H20M8.5 18H20"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 6h.01M4 12h.01M4 18h.01M8.5 6H20M8.5 12H20M8.5 18H20"/></svg>
         <span class="lbl" data-i18n="Logs">Logs</span>
       </a>
       <a href="#/settings" data-route="settings" data-i18n-title="Settings" title="Settings">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h7.5M17.5 7.5H20M4 16.5h2.5M12.5 16.5H20"/><circle cx="14.5" cy="7.5" r="2.2"/><circle cx="9.5" cy="16.5" r="2.2"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h7.5M17.5 7.5H20M4 16.5h2.5M12.5 16.5H20"/><circle cx="14.5" cy="7.5" r="2.2"/><circle cx="9.5" cy="16.5" r="2.2"/></svg>
         <span class="lbl" data-i18n="Settings">Settings</span>
       </a>
     </nav>
