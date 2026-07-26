@@ -77,6 +77,7 @@ function createApp(overrides = {}) {
       rpm: stats.rpm(),
       avgLatencyMs: stats.avgLatencyMs(),
       keyCounts: pool.keyCounts(),
+      problemKeys: pool.problemKeys(),
     });
   }, 5000);
   sweepTimer.unref?.();

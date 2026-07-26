@@ -87,6 +87,8 @@ const store = {
   revealKeys: {},           // channelId -> bool
   expandedChannel: null,
   selectedKeys: new Set(),
+  channelFilter: '',
+  channelTest: {},          // channelId -> {state, ok, statusCode, latencyMs, error}
   tokens: [],
   logs: [],
   expandedLogs: new Set(),
@@ -173,6 +175,7 @@ function closeModal() {
   const root = $('#modal-root');
   root.classList.add('hidden');
   root.innerHTML = '';
+  modelSel = null; // drop channel-modal selector state
 }
 
 /* ============================================================
@@ -356,11 +359,10 @@ function handleKeysEvent(d) {
       if (d.status === 'disabled') k.enabled = false;
     }
   }
-  // Patch the badge in place (avoids clobbering the import textarea).
-  const badge = document.querySelector('[data-key-badge="' + cssEsc(d.keyId) + '"]');
-  if (badge) {
+  // Patch badges in place (key panel and/or edit modal) — avoids clobbering inputs.
+  $$('[data-key-badge="' + cssEsc(d.keyId) + '"]').forEach((badge) => {
     badge.outerHTML = keyBadgeHtml({ id: d.keyId, status: d.status, cooldownUntil: d.cooldownUntil });
-  }
+  });
 }
 
 function handleOverviewEvent(d) {
@@ -413,6 +415,7 @@ function clearDashTimer() {
 async function renderDashboard() {
   $('#view').innerHTML =
     '<div class="view-head"><h2>' + esc(t('Dashboard')) + '</h2><div class="sub" id="uptime-sub"></div></div>' +
+    '<div id="problem-banner"></div>' +
     '<div class="stat-grid" id="stat-cards"></div>' +
     '<div class="card">' +
       '<div class="card-head"><h3>' + esc(t('Requests per minute')) + '</h3>' +
@@ -508,12 +511,57 @@ function renderDashStats() {
     up.textContent = t('Uptime {t}', { t: fmtUptime(ov.uptimeMs) }) +
       (ov.channelCount != null ? ' · ' + t('{n} channels', { n: ov.channelCount }) : '');
   }
+  renderProblemBanner();
 }
 
 function statTile(label, value, sub) {
   return '<div class="stat"><div class="label">' + esc(label) + '</div>' +
     '<div class="value">' + value + '</div>' +
     (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+}
+
+/* ----- failing-key warning banner ----- */
+
+function renderProblemBanner() {
+  const box = $('#problem-banner');
+  if (!box) return;
+  const list = (store.overview && store.overview.problemKeys) || [];
+  if (!list.length) { box.innerHTML = ''; return; }
+  const MAX = 6;
+  box.innerHTML =
+    '<div class="card alert-card">' +
+      '<div class="alert-head">' +
+        '<span class="alert-icon">⚠</span>' +
+        '<strong>' + esc(t('{n} keys need attention', { n: list.length })) + '</strong>' +
+        '<span class="muted small">' + esc(t('Reset clears failures and re-enables the key.')) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<a class="btn btn-sm" href="#/channels">' + esc(t('View channels')) + '</a>' +
+      '</div>' +
+      '<div class="alert-list">' +
+      list.slice(0, MAX).map((p) =>
+        '<div class="alert-row">' +
+          '<span class="alert-ch" title="' + esc(p.channelName) + '">' + esc(p.channelName) + '</span>' +
+          '<span class="mono">' + esc(p.keyMasked) + '</span>' +
+          problemReasonBadge(p) +
+          '<span class="muted small">' + esc(t('{failed}/{total} failed', { failed: fmtNum(p.failed), total: fmtNum(p.requests) })) + '</span>' +
+          (p.lastError ? '<span class="err-cell small" title="' + esc(p.lastError) + '">' + esc(truncate(p.lastError, 60)) + '</span>' : '') +
+          '<span class="spacer"></span>' +
+          '<button class="btn btn-sm" data-action="problem-key-reset" data-id="' + esc(p.keyId) + '">' + esc(t('Reset')) + '</button>' +
+        '</div>'
+      ).join('') +
+      (list.length > MAX ? '<div class="alert-more muted small">' + esc(t('+{n} more…', { n: list.length - MAX })) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+}
+
+function problemReasonBadge(p) {
+  if (p.reason === 'auto_disabled') {
+    return '<span class="badge badge-error">' + esc(t('auto-disabled')) + '</span>';
+  }
+  if (p.reason === 'failing') {
+    return '<span class="badge badge-cooldown">' + esc(t('{n} consecutive failures', { n: p.consecutiveFailures })) + '</span>';
+  }
+  return '<span class="badge badge-error">' + esc(t('{pct} error rate', { pct: pct(p.failed, p.requests) })) + '</span>';
 }
 
 /* ----- chart ----- */
@@ -740,10 +788,16 @@ async function renderChannels() {
   $('#view').innerHTML =
     '<div class="view-head"><h2>' + esc(t('Channels')) + '</h2>' +
     '<button class="btn btn-primary" data-action="channel-add">' + esc(t('+ Add channel')) + '</button></div>' +
+    '<div class="card table-toolbar">' +
+      '<input type="search" data-channel-search placeholder="' + esc(t('Search name, URL or model…')) + '" value="' + esc(store.channelFilter) + '">' +
+      '<span class="muted small" id="channel-count"></span>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn" data-action="channels-refresh">' + esc(t('Refresh')) + '</button>' +
+    '</div>' +
     '<div class="card flush"><div class="table-scroll"><table>' +
-      '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Base URL')) + '</th><th class="num">' + esc(t('Priority')) + '</th><th class="num">' + esc(t('Weight')) + '</th>' +
-      '<th class="num">' + esc(t('Keys')) + '</th><th>' + esc(t('Requests')) + '</th><th>' + esc(t('Enabled')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
-      '<tbody id="channels-tbody"><tr><td colspan="8" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
+      '<thead><tr><th>' + esc(t('Name')) + '</th><th>' + esc(t('Models')) + '</th><th class="num">' + esc(t('Priority')) + '</th><th class="num">' + esc(t('Weight')) + '</th>' +
+      '<th class="num">' + esc(t('Keys')) + '</th><th>' + esc(t('Requests')) + '</th><th>' + esc(t('Response time')) + '</th><th>' + esc(t('Status')) + '</th><th>' + esc(t('Actions')) + '</th></tr></thead>' +
+      '<tbody id="channels-tbody"><tr><td colspan="9" class="empty">' + esc(t('Loading…')) + '</td></tr></tbody>' +
     '</table></div></div>';
 
   try {
@@ -754,7 +808,7 @@ async function renderChannels() {
     }
   } catch (e) {
     const tbody = $('#channels-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('Failed to load channels.')) + '</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('Failed to load channels.')) + '</td></tr>';
     toast(e.message, 'error');
   }
 }
@@ -763,33 +817,71 @@ async function loadChannelsData() {
   store.channels = (await api('/api/channels')) || [];
 }
 
+function channelMatchesFilter(ch) {
+  const q = store.channelFilter.trim().toLowerCase();
+  if (!q) return true;
+  return [ch.name, ch.baseUrl, (ch.models || []).join(' ')]
+    .some((s) => String(s || '').toLowerCase().indexOf(q) >= 0);
+}
+
+function channelModelsHtml(ch) {
+  const models = ch.models || [];
+  if (!models.length) return '<span class="badge badge-neutral">' + esc(t('All models')) + '</span>';
+  const shown = models.slice(0, 2);
+  let html = shown.map((m) =>
+    '<span class="tag tag-static"><span class="tag-label" title="' + esc(m) + '">' + esc(m) + '</span></span>').join('');
+  if (models.length > shown.length) {
+    html += '<span class="tag tag-static tag-more" title="' + esc(models.join('\n')) + '">+' + (models.length - shown.length) + '</span>';
+  }
+  return '<div class="tag-cell">' + html + '</div>';
+}
+
+function chTestHtml(chId) {
+  const r = store.channelTest[chId];
+  if (!r) return '<span class="muted small">–</span>';
+  if (r.state === 'testing') return '<span class="muted small">' + esc(t('Testing…')) + '</span>';
+  if (r.ok) return '<span class="badge badge-success">' + esc(fmtMs(r.latencyMs)) + '</span>';
+  return '<span class="badge badge-error" title="' + esc(r.error || '') + '">' +
+    esc((r.statusCode || t('error')) + ' · ' + fmtMs(r.latencyMs)) + '</span>';
+}
+
 function renderChannelsTable() {
   const tbody = $('#channels-tbody');
   if (!tbody) return;
+  const visible = store.channels.filter(channelMatchesFilter);
+  const count = $('#channel-count');
+  if (count) count.textContent = t('{shown} / {total} channels', { shown: visible.length, total: store.channels.length });
   if (!store.channels.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t('No channels yet. Add one to start routing requests.')) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('No channels yet. Add one to start routing requests.')) + '</td></tr>';
     return;
   }
-  tbody.innerHTML = store.channels.map((ch) => {
+  if (!visible.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">' + esc(t('No channels match your search.')) + '</td></tr>';
+    return;
+  }
+  tbody.innerHTML = visible.map((ch) => {
     const s = ch.stats || {};
     const expanded = store.expandedChannel === ch.id;
     let html = '<tr class="row-click' + (expanded ? ' row-expanded' : '') + '" data-channel-row="' + esc(ch.id) + '">' +
-      '<td><div class="cell-title">' + esc(ch.name) + '</div></td>' +
-      '<td class="mono small">' + esc(ch.baseUrl) + '</td>' +
+      '<td><div class="cell-title">' + esc(ch.name) + '</div>' +
+        '<div class="mono small muted cell-sub" title="' + esc(ch.baseUrl) + '">' + esc(ch.baseUrl) + '</div></td>' +
+      '<td>' + channelModelsHtml(ch) + '</td>' +
       '<td class="num">' + esc(ch.priority != null ? ch.priority : 0) + '</td>' +
       '<td class="num">' + esc(ch.weight != null ? ch.weight : 1) + '</td>' +
       '<td class="num"><span class="ok-text">' + esc(ch.activeKeyCount != null ? ch.activeKeyCount : '?') + '</span>' +
         '<span class="muted">/' + esc(ch.keyCount != null ? ch.keyCount : '?') + '</span></td>' +
       '<td class="small">' + fmtNum(s.requests || 0) + ' <span class="muted">·</span> ' + pct(s.success || 0, s.requests || 0) +
         ' <span class="muted">· ' + fmtMs(s.avgLatencyMs) + '</span></td>' +
+      '<td data-chtest="' + esc(ch.id) + '">' + chTestHtml(ch.id) + '</td>' +
       '<td data-stop><label class="switch"><input type="checkbox" data-toggle="channel" data-id="' + esc(ch.id) + '"' +
         (ch.enabled ? ' checked' : '') + '><span class="sl"></span></label></td>' +
       '<td class="actions" data-stop>' +
+        '<button class="btn btn-sm" data-action="channel-test" data-id="' + esc(ch.id) + '">' + esc(t('Test')) + '</button>' +
         '<button class="btn btn-sm" data-action="channel-edit" data-id="' + esc(ch.id) + '">' + esc(t('Edit')) + '</button>' +
         '<button class="btn btn-sm btn-danger" data-action="channel-delete" data-id="' + esc(ch.id) + '">' + esc(t('Delete')) + '</button>' +
       '</td></tr>';
     if (expanded) {
-      html += '<tr><td colspan="8" class="nopad">' + keyPanelHtml(ch) + '</td></tr>';
+      html += '<tr><td colspan="9" class="nopad">' + keyPanelHtml(ch) + '</td></tr>';
     }
     return html;
   }).join('');
@@ -836,13 +928,16 @@ function keysRowsHtml(chId) {
   return keys.map((k) => {
     const st = k.stats || {};
     const checked = store.selectedKeys.has(k.id);
+    const failWarn = (st.requests || 0) >= 10 && (st.failed || 0) / st.requests >= 0.5;
     return '<tr data-key-row="' + esc(k.id) + '">' +
       '<td data-stop><input type="checkbox" data-keysel="' + esc(k.id) + '" data-ch="' + esc(chId) + '"' + (checked ? ' checked' : '') + '></td>' +
       '<td class="mono">' + esc(k.key) + '</td>' +
       '<td>' + keyBadgeHtml(k) + '</td>' +
       '<td class="num">' + fmtNum(st.requests || 0) + '</td>' +
       '<td class="num">' + fmtNum(st.success || 0) + '</td>' +
-      '<td class="num">' + fmtNum(st.failed || 0) + '</td>' +
+      '<td class="num' + (failWarn ? ' err-text' : '') + '"' +
+        (failWarn ? ' title="' + esc(t('{pct} error rate', { pct: pct(st.failed, st.requests) })) + '"' : '') + '>' +
+        fmtNum(st.failed || 0) + '</td>' +
       '<td class="num">' + fmtNum(st.count429 || 0) + '</td>' +
       '<td class="num">' + fmtMs(st.ewmaLatencyMs) + '</td>' +
       '<td class="err-cell" title="' + esc(st.lastError || '') + '">' + esc(truncate(st.lastError || '', 48)) + '</td>' +
@@ -920,13 +1015,20 @@ function openChannelModal(ch) {
   ch = ch || {};
   const mappingJson = ch.modelMapping && Object.keys(ch.modelMapping).length
     ? JSON.stringify(ch.modelMapping, null, 2) : '';
+  modelSel = {
+    selected: (ch.models || []).slice(),
+    options: (ch.models || []).slice().sort((a, b) => a.localeCompare(b)),
+    query: '',
+    open: false,
+  };
   openModal(
     '<h3>' + esc(isEdit ? t('Edit channel') : t('Add channel')) + '</h3>' +
     '<form id="channel-form"' + (isEdit ? ' data-id="' + esc(ch.id) + '"' : '') + '>' +
       '<div class="form-grid">' +
-        '<div class="field span2"><label>' + esc(t('Name')) + '</label>' +
+        '<div class="form-section span2">' + esc(t('Basics')) + '</div>' +
+        '<div class="field"><label>' + esc(t('Name')) + '</label>' +
           '<input name="name" required value="' + esc(ch.name || '') + '" placeholder="OpenAI main"></div>' +
-        '<div class="field span2"><label>' + esc(t('Base URL')) + '</label>' +
+        '<div class="field"><label>' + esc(t('Base URL')) + '</label>' +
           '<input name="baseUrl" required value="' + esc(ch.baseUrl || '') + '" placeholder="https://api.openai.com"></div>' +
         '<div class="field span2"><label>' + esc(t('Proxy')) + ' <span class="muted">' + esc(t('(optional, e.g. http://127.0.0.1:7890)')) + '</span></label>' +
           '<input name="proxy" value="' + esc(ch.proxy || '') + '"></div>' +
@@ -934,26 +1036,37 @@ function openChannelModal(ch) {
           '<input name="priority" type="number" step="1" value="' + esc(ch.priority != null ? ch.priority : 0) + '"></div>' +
         '<div class="field"><label>' + esc(t('Weight')) + '</label>' +
           '<input name="weight" type="number" step="1" min="0" value="' + esc(ch.weight != null ? ch.weight : 1) + '"></div>' +
-        '<div class="field span2"><label>' + esc(t('Models')) + ' <span class="muted">' + esc(t('(comma-separated; empty = all)')) + '</span></label>' +
-          '<input name="models" value="' + esc((ch.models || []).join(', ')) + '" placeholder="gpt-4o, gpt-4o-mini"></div>' +
+
+        '<div class="form-section span2">' + esc(t('Models')) + ' <span class="muted normalcase">' + esc(t('(empty = serve all models)')) + '</span></div>' +
         '<div class="span2">' +
+          '<div class="model-widget" data-model-widget>' +
+            '<div class="tag-select" data-model-box></div>' +
+            '<div class="tag-dropdown hidden" data-model-dropdown></div>' +
+          '</div>' +
           '<div class="fetch-models-row">' +
             '<button type="button" class="btn btn-sm" data-action="fetch-models"' + (isEdit ? ' data-id="' + esc(ch.id) + '"' : '') + '>' + esc(t('Fetch models')) + '</button>' +
-            '<span class="hint" id="fetch-models-hint">' + esc(t('Pulls /v1/models from the Base URL above.')) + '</span>' +
+            '<button type="button" class="btn btn-sm" data-action="models-clear">' + esc(t('Clear all')) + '</button>' +
+            '<span class="hint" id="fetch-models-hint">' + esc(t('Type to add models, or pull /v1/models from the upstream.')) + '</span>' +
           '</div>' +
-          '<div id="model-picker" class="model-picker hidden"></div>' +
         '</div>' +
         '<div class="field span2"><label>' + esc(t('Model mapping')) + ' <span class="muted">' + esc(t('(JSON, requested → upstream)')) + '</span></label>' +
-          '<textarea name="modelMapping" rows="3" placeholder=\'{"gpt-4o": "gpt-4o-2024-11-20"}\'>' + esc(mappingJson) + '</textarea></div>' +
+          '<textarea name="modelMapping" rows="2" placeholder=\'{"gpt-4o": "gpt-4o-2024-11-20"}\'>' + esc(mappingJson) + '</textarea></div>' +
+
+        '<div class="form-section span2">' + esc(t('Authentication')) + '</div>' +
         '<div class="field"><label>' + esc(t('Key header')) + '</label>' +
           '<input name="keyHeader" value="' + esc(ch.keyHeader != null ? ch.keyHeader : 'Authorization') + '"></div>' +
         '<div class="field"><label>' + esc(t('Key prefix')) + '</label>' +
           '<input name="keyPrefix" value="' + esc(ch.keyPrefix != null ? ch.keyPrefix : 'Bearer ') + '"></div>' +
-        '<div class="field span2"><label class="checklab"><input type="checkbox" name="enabled"' +
+
+        '<div class="form-section span2">' + esc(t('API keys')) + '</div>' +
+        (isEdit ? '<div class="span2" id="modal-keys"><div class="hint" style="margin-bottom:8px">' + esc(t('Loading keys…')) + '</div></div>' : '') +
+        '<div class="field span2"><label>' + esc(isEdit ? t('Add keys') : t('API keys')) + ' <span class="muted">' + esc(t('(one per line, optional)')) + '</span></label>' +
+          '<textarea name="keys" rows="3" placeholder="sk-...&#10;sk-..."></textarea>' +
+          (isEdit ? '<div class="hint">' + esc(t('New keys are imported when you save. Duplicates are skipped.')) + '</div>' : '') +
+        '</div>' +
+
+        '<div class="field span2" style="margin-top:4px"><label class="checklab"><input type="checkbox" name="enabled"' +
           ((isEdit ? ch.enabled : true) ? ' checked' : '') + '> ' + esc(t('Enabled')) + '</label></div>' +
-        (isEdit ? '' :
-          '<div class="field span2"><label>' + esc(t('API keys')) + ' <span class="muted">' + esc(t('(one per line, optional)')) + '</span></label>' +
-          '<textarea name="keys" rows="4" placeholder="sk-...&#10;sk-..."></textarea></div>') +
       '</div>' +
       '<div class="modal-actions">' +
         '<button type="button" class="btn" data-action="modal-close">' + esc(t('Cancel')) + '</button>' +
@@ -961,6 +1074,48 @@ function openChannelModal(ch) {
       '</div>' +
     '</form>'
   );
+  renderModelBox();
+  if (isEdit) loadModalKeys(ch.id);
+}
+
+/* ----- key list inside the edit modal ----- */
+
+async function loadModalKeys(chId) {
+  const box = document.getElementById('modal-keys');
+  if (!box) return;
+  try {
+    const reveal = !!store.revealKeys[chId];
+    store.keysByChannel[chId] = (await api('/api/channels/' + encodeURIComponent(chId) + '/keys' + (reveal ? '?reveal=1' : ''))) || [];
+  } catch (e) {
+    box.innerHTML = '<div class="hint err-text" style="margin-bottom:8px">' + esc(e.message) + '</div>';
+    return;
+  }
+  renderModalKeys(chId);
+}
+
+function renderModalKeys(chId) {
+  const box = document.getElementById('modal-keys');
+  if (!box) return;
+  const keys = store.keysByChannel[chId] || [];
+  if (!keys.length) {
+    box.innerHTML = '<div class="hint" style="margin-bottom:8px">' + esc(t('No keys in this channel. Import some below.')) + '</div>';
+    return;
+  }
+  box.innerHTML =
+    '<div class="modal-keys-list">' +
+    keys.map((k) => {
+      const st = k.stats || {};
+      return '<div class="mk-row">' +
+        '<span class="mono mk-key" title="' + esc(k.key) + '">' + esc(k.key) + '</span>' +
+        keyBadgeHtml(k) +
+        '<span class="muted small mk-stats">' + esc(t('{failed}/{total} failed', { failed: fmtNum(st.failed || 0), total: fmtNum(st.requests || 0) })) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<button type="button" class="btn btn-sm" data-action="modal-key-toggle" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '" data-enabled="' + (k.enabled ? 'false' : 'true') + '">' + esc(k.enabled ? t('Disable') : t('Enable')) + '</button>' +
+        '<button type="button" class="btn btn-sm btn-danger" data-action="modal-key-delete" data-id="' + esc(k.id) + '" data-ch="' + esc(chId) + '">' + esc(t('Delete')) + '</button>' +
+      '</div>';
+    }).join('') +
+    '</div>' +
+    '<div class="hint" style="margin:6px 0 10px">' + esc(t('{n} keys', { n: keys.length })) + '</div>';
 }
 
 async function submitChannelForm(form) {
@@ -971,7 +1126,7 @@ async function submitChannelForm(form) {
     proxy: f.proxy.value.trim(),
     priority: Number(f.priority.value) || 0,
     weight: Number(f.weight.value) || 0,
-    models: f.models.value.split(',').map((s) => s.trim()).filter(Boolean),
+    models: modelSel ? modelSel.selected.slice() : [],
     keyHeader: f.keyHeader.value,
     keyPrefix: f.keyPrefix.value,
     enabled: f.enabled.checked,
@@ -990,25 +1145,110 @@ async function submitChannelForm(form) {
     body.modelMapping = {};
   }
   const id = form.dataset.id;
-  if (!id && f.keys && f.keys.value.trim()) {
+  if (f.keys && f.keys.value.trim()) {
     body.keys = f.keys.value; // string, one key per line — server trims/dedupes
   }
+  let r;
   if (id) {
-    await api('/api/channels/' + encodeURIComponent(id), { method: 'PUT', body });
+    r = await api('/api/channels/' + encodeURIComponent(id), { method: 'PUT', body });
     toast('Channel updated', 'success');
   } else {
-    await api('/api/channels', { method: 'POST', body });
+    r = await api('/api/channels', { method: 'POST', body });
     toast('Channel created', 'success');
+  }
+  if (r && r.imported && (r.imported.added || r.imported.skipped)) {
+    toast(t('Imported: {added} added, {skipped} skipped', { added: r.imported.added, skipped: r.imported.skipped }),
+      r.imported.added ? 'success' : 'info');
   }
   closeModal();
   await refreshChannelsAndKeys(store.expandedChannel);
 }
 
-/* ----- model picker (fetch /v1/models from the upstream) ----- */
+/* ----- model tag selector (new-api style chips + searchable dropdown) ----- */
+
+let modelSel = null; // { selected: [], options: [], query: '', open: false } — lives while the channel modal is open
+
+function renderModelBox() {
+  const box = document.querySelector('[data-model-box]');
+  if (!box || !modelSel) return;
+  box.innerHTML =
+    modelSel.selected.map((m) =>
+      '<span class="tag"><span class="tag-label" title="' + esc(m) + '">' + esc(m) + '</span>' +
+      '<button type="button" class="tag-x" data-action="model-remove" data-model="' + esc(m) + '" aria-label="remove ' + esc(m) + '">&times;</button></span>'
+    ).join('') +
+    '<input type="text" data-model-input autocomplete="off" spellcheck="false" placeholder="' +
+      (modelSel.selected.length ? '' : esc(t('Type or pick models…'))) + '" value="' + esc(modelSel.query) + '">';
+  renderModelDropdown();
+}
+
+function renderModelDropdown() {
+  const dd = document.querySelector('[data-model-dropdown]');
+  if (!dd || !modelSel) return;
+  if (!modelSel.open) { dd.classList.add('hidden'); return; }
+  const q = modelSel.query.trim().toLowerCase();
+  const sel = new Set(modelSel.selected);
+  const opts = modelSel.options.filter((m) => !q || m.toLowerCase().indexOf(q) >= 0);
+  const typed = modelSel.query.trim();
+  const exact = !typed || sel.has(typed) || modelSel.options.some((m) => m.toLowerCase() === q);
+  let html =
+    '<div class="tag-dd-head">' +
+      '<span class="muted small">' + esc(t('{sel} / {total} selected', { sel: modelSel.selected.length, total: modelSel.options.length })) + '</span>' +
+      '<span class="spacer"></span>' +
+      (opts.length ? '<button type="button" class="btn btn-sm" data-action="models-select-all">' + esc(t('Select all')) + '</button>' : '') +
+    '</div>' +
+    '<div class="tag-dd-list">';
+  if (!exact) {
+    html += '<button type="button" class="tag-opt tag-opt-add" data-action="model-add-custom" data-model="' + esc(typed) + '">+ ' +
+      esc(t('Add "{name}"', { name: typed })) + '</button>';
+  }
+  html += opts.map((m) =>
+    '<button type="button" class="tag-opt' + (sel.has(m) ? ' sel' : '') + '" data-action="model-opt" data-model="' + esc(m) + '">' +
+      '<span class="check">✓</span><span class="opt-name" title="' + esc(m) + '">' + esc(m) + '</span>' +
+    '</button>'
+  ).join('');
+  if (!opts.length && exact) {
+    html += '<div class="tag-dd-empty">' + esc(t('Type a model name and press Enter to add it.')) + '</div>';
+  }
+  html += '</div>';
+  dd.innerHTML = html;
+  dd.classList.remove('hidden');
+}
+
+function focusModelInput() {
+  const inp = document.querySelector('[data-model-input]');
+  if (inp) {
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+  }
+}
+
+function modelSelAdd(name) {
+  name = String(name || '').trim();
+  if (!name || !modelSel) return;
+  if (modelSel.selected.indexOf(name) < 0) modelSel.selected.push(name);
+  if (modelSel.options.indexOf(name) < 0) {
+    modelSel.options.push(name);
+    modelSel.options.sort((a, b) => a.localeCompare(b));
+  }
+  modelSel.query = '';
+  renderModelBox();
+  focusModelInput();
+}
+
+function modelSelToggle(name) {
+  if (!modelSel) return;
+  const i = modelSel.selected.indexOf(name);
+  if (i >= 0) modelSel.selected.splice(i, 1);
+  else modelSel.selected.push(name);
+  renderModelBox(); // keeps the current query, so multi-picking under a filter works
+  focusModelInput();
+}
+
+/* ----- fetch /v1/models from the upstream into the selector options ----- */
 
 async function fetchModelsForForm(btn) {
   const form = document.getElementById('channel-form');
-  if (!form) return;
+  if (!form || !modelSel) return;
   const f = form.elements;
   const hint = document.getElementById('fetch-models-hint');
   const setHint = (text, isErr) => {
@@ -1026,7 +1266,7 @@ async function fetchModelsForForm(btn) {
     keyPrefix: f.keyPrefix.value,
   };
   if (form.dataset.id) body.channelId = form.dataset.id;
-  // In add mode, borrow the first pasted key for the probe.
+  // Borrow the first pasted key for the probe (falls back to a stored key server-side).
   if (f.keys && f.keys.value.trim()) {
     body.key = f.keys.value.split('\n').map((s) => s.trim()).filter(Boolean)[0];
   }
@@ -1040,68 +1280,16 @@ async function fetchModelsForForm(btn) {
       return;
     }
     setHint(t('{n} models · {ms}', { n: r.models.length, ms: fmtMs(r.latencyMs) }), false);
-    renderModelPicker(r.models || [], f.models.value);
+    if (!modelSel) return; // modal closed while fetching
+    const known = new Set(modelSel.options);
+    (r.models || []).forEach((m) => { if (!known.has(m)) modelSel.options.push(m); });
+    modelSel.options.sort((a, b) => a.localeCompare(b));
+    modelSel.open = true;
+    renderModelDropdown();
+    focusModelInput();
   } catch (err) {
     setHint(truncate(err.message, 110), true);
   }
-}
-
-function renderModelPicker(models, currentCsv) {
-  const box = document.getElementById('model-picker');
-  if (!box) return;
-  if (!models.length) {
-    box.innerHTML = '<div class="empty">' + esc(t('The endpoint returned no models.')) + '</div>';
-    box.classList.remove('hidden');
-    return;
-  }
-  const selected = new Set(currentCsv.split(',').map((s) => s.trim()).filter(Boolean));
-  box.innerHTML =
-    '<div class="model-picker-head">' +
-      '<label class="checklab"><input type="checkbox" data-model-all> ' + esc(t('Select all')) + '</label>' +
-      '<input type="search" data-model-search placeholder="' + esc(t('Filter…')) + '">' +
-      '<span class="count" data-model-count></span>' +
-    '</div>' +
-    '<div class="model-list">' +
-      models.map((m) =>
-        '<label class="model-item"><input type="checkbox" data-model-cb value="' + esc(m) + '"' +
-        (selected.has(m) ? ' checked' : '') + '><span title="' + esc(m) + '">' + esc(m) + '</span></label>'
-      ).join('') +
-    '</div>' +
-    '<div class="model-picker-foot">' +
-      '<span class="hint">' + esc(t('Ticked models fill the field above.')) + '</span>' +
-      '<button type="button" class="btn btn-sm" data-action="models-cancel">' + esc(t('Cancel')) + '</button>' +
-      '<button type="button" class="btn btn-sm btn-primary" data-action="models-apply">' + esc(t('Apply selection')) + '</button>' +
-    '</div>';
-  box.classList.remove('hidden');
-  updateModelPickerCount();
-}
-
-function updateModelPickerCount() {
-  const box = document.getElementById('model-picker');
-  if (!box) return;
-  const cbs = $$('[data-model-cb]', box);
-  const sel = cbs.filter((cb) => cb.checked).length;
-  const count = box.querySelector('[data-model-count]');
-  if (count) count.textContent = t('{sel} / {total} selected', { sel: sel, total: cbs.length });
-  const all = box.querySelector('[data-model-all]');
-  if (all) {
-    const visible = cbs.filter((cb) => !cb.closest('.model-item').classList.contains('hidden'));
-    all.checked = visible.length > 0 && visible.every((cb) => cb.checked);
-  }
-}
-
-function applyModelPicker() {
-  const form = document.getElementById('channel-form');
-  const box = document.getElementById('model-picker');
-  if (!form || !box) return;
-  const cbs = $$('[data-model-cb]', box);
-  const fetched = new Set(cbs.map((cb) => cb.value));
-  const checked = cbs.filter((cb) => cb.checked).map((cb) => cb.value);
-  // Preserve hand-typed entries the upstream didn't list (aliases, mapped names).
-  const kept = form.elements.models.value.split(',').map((s) => s.trim()).filter(Boolean)
-    .filter((m) => !fetched.has(m));
-  form.elements.models.value = kept.concat(checked).join(', ');
-  box.classList.add('hidden');
 }
 
 /* ============================================================
@@ -1438,10 +1626,28 @@ async function submitSettingsForm(form) {
  * ============================================================ */
 
 document.addEventListener('click', async (e) => {
+  // Clicking outside the model selector closes its dropdown.
+  if (modelSel && modelSel.open && !e.target.closest('[data-model-widget]')) {
+    modelSel.open = false;
+    renderModelDropdown();
+  }
+
   const actEl = e.target.closest('[data-action]');
   if (actEl) {
     e.preventDefault();
     await runAction(actEl).catch((err) => toast(err.message, 'error'));
+    return;
+  }
+
+  // Clicking the model selector box focuses its input and opens the list.
+  const mbox = e.target.closest('[data-model-box]');
+  if (mbox) {
+    if (modelSel) {
+      modelSel.open = true;
+      renderModelDropdown();
+    }
+    const inp = mbox.querySelector('[data-model-input]');
+    if (inp) inp.focus();
     return;
   }
 
@@ -1494,15 +1700,40 @@ async function runAction(el) {
       await fetchModelsForForm(el);
       break;
 
-    case 'models-apply':
-      applyModelPicker();
-      break;
-
-    case 'models-cancel': {
-      const box = document.getElementById('model-picker');
-      if (box) box.classList.add('hidden');
+    case 'model-remove': {
+      if (!modelSel) break;
+      const i = modelSel.selected.indexOf(el.dataset.model);
+      if (i >= 0) modelSel.selected.splice(i, 1);
+      renderModelBox();
+      focusModelInput();
       break;
     }
+
+    case 'model-opt':
+      modelSelToggle(el.dataset.model);
+      break;
+
+    case 'model-add-custom':
+      modelSelAdd(el.dataset.model);
+      break;
+
+    case 'models-select-all': {
+      if (!modelSel) break;
+      const q = modelSel.query.trim().toLowerCase();
+      modelSel.options
+        .filter((m) => !q || m.toLowerCase().indexOf(q) >= 0)
+        .forEach((m) => { if (modelSel.selected.indexOf(m) < 0) modelSel.selected.push(m); });
+      renderModelBox();
+      focusModelInput();
+      break;
+    }
+
+    case 'models-clear':
+      if (!modelSel) break;
+      modelSel.selected = [];
+      renderModelBox();
+      focusModelInput();
+      break;
 
     case 'channel-edit': {
       const ch = store.channels.find((c) => c.id === id);
@@ -1519,6 +1750,61 @@ async function runAction(el) {
       delete store.keysByChannel[id];
       toast('Channel deleted', 'success');
       await refreshChannelsAndKeys(null);
+      break;
+    }
+
+    case 'channel-test': {
+      store.channelTest[id] = { state: 'testing' };
+      const cell = document.querySelector('[data-chtest="' + cssEsc(id) + '"]');
+      if (cell) cell.innerHTML = chTestHtml(id);
+      try {
+        const r = await withBusy(el, () => api('/api/channels/fetch-models', { method: 'POST', body: { channelId: id } }));
+        store.channelTest[id] = {
+          state: 'done',
+          ok: !!(r && r.ok),
+          statusCode: (r && r.statusCode) || 0,
+          latencyMs: r && r.latencyMs,
+          error: r && r.error,
+        };
+      } catch (err) {
+        store.channelTest[id] = { state: 'done', ok: false, statusCode: 0, latencyMs: null, error: err.message };
+      }
+      const done = document.querySelector('[data-chtest="' + cssEsc(id) + '"]');
+      if (done) done.innerHTML = chTestHtml(id);
+      break;
+    }
+
+    case 'channels-refresh':
+      await withBusy(el, () => refreshChannelsAndKeys(store.expandedChannel));
+      break;
+
+    case 'modal-key-toggle': {
+      const enabled = el.dataset.enabled === 'true';
+      await withBusy(el, () => api('/api/keys/' + encodeURIComponent(id), { method: 'PATCH', body: { enabled: enabled } }));
+      toast('Key ' + (enabled ? 'enabled' : 'disabled'), 'success');
+      await loadModalKeys(chId);
+      await loadChannelsData();
+      if (store.route === 'channels') renderChannelsTable();
+      break;
+    }
+
+    case 'modal-key-delete': {
+      if (!confirm(t('Delete this key?'))) return;
+      await withBusy(el, () => api('/api/keys/' + encodeURIComponent(id), { method: 'DELETE' }));
+      store.selectedKeys.delete(id);
+      toast('Key deleted', 'success');
+      store.keysByChannel[chId] = (store.keysByChannel[chId] || []).filter((k) => k.id !== id);
+      renderModalKeys(chId);
+      await loadChannelsData();
+      if (store.route === 'channels') renderChannelsTable();
+      break;
+    }
+
+    case 'problem-key-reset': {
+      await withBusy(el, () => api('/api/keys/' + encodeURIComponent(id) + '/reset', { method: 'POST' }));
+      toast('Key reset', 'success');
+      try { store.overview = await api('/api/overview'); } catch (e) { /* banner refresh is best-effort */ }
+      renderDashStats();
       break;
     }
 
@@ -1663,19 +1949,6 @@ document.addEventListener('change', async (e) => {
       $$('[data-keysel]').forEach((cb) => { cb.checked = el.checked; });
       updateBatchBar();
 
-    } else if (el.matches('[data-model-all]')) {
-      const box = document.getElementById('model-picker');
-      if (box) {
-        // Toggle only the rows the current filter shows.
-        $$('[data-model-cb]', box).forEach((cb) => {
-          if (!cb.closest('.model-item').classList.contains('hidden')) cb.checked = el.checked;
-        });
-        updateModelPickerCount();
-      }
-
-    } else if (el.matches('[data-model-cb]')) {
-      updateModelPickerCount();
-
     } else if (el.closest('#logs-filter') && el.name !== 'q') {
       readLogFilters();
       await fetchLogs();
@@ -1699,16 +1972,15 @@ document.addEventListener('input', (e) => {
       readLogFilters();
       fetchLogs();
     }, 300);
-  } else if (e.target.matches('[data-model-search]')) {
-    const q = e.target.value.trim().toLowerCase();
-    const box = document.getElementById('model-picker');
-    if (box) {
-      $$('.model-item', box).forEach((item) => {
-        const name = item.querySelector('[data-model-cb]').value.toLowerCase();
-        item.classList.toggle('hidden', q !== '' && name.indexOf(q) < 0);
-      });
-      updateModelPickerCount();
+  } else if (e.target.matches('[data-model-input]')) {
+    if (modelSel) {
+      modelSel.query = e.target.value;
+      modelSel.open = true;
+      renderModelDropdown();
     }
+  } else if (e.target.matches('[data-channel-search]')) {
+    store.channelFilter = e.target.value;
+    renderChannelsTable();
   }
 });
 
@@ -1744,12 +2016,28 @@ document.addEventListener('submit', async (e) => {
 /* ----- keyboard ----- */
 
 document.addEventListener('keydown', (e) => {
+  // Model tag input: Enter/comma adds, Backspace pops, Escape closes the dropdown only.
+  if (e.target.matches && e.target.matches('[data-model-input]') && modelSel) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault(); // never submit the channel form from here
+      const v = e.target.value.trim();
+      if (v) modelSelAdd(v);
+      return;
+    }
+    if (e.key === 'Backspace' && e.target.value === '' && modelSel.selected.length) {
+      modelSel.selected.pop();
+      renderModelBox();
+      focusModelInput();
+      return;
+    }
+    if (e.key === 'Escape' && modelSel.open) {
+      modelSel.open = false;
+      renderModelDropdown();
+      return;
+    }
+  }
   if (e.key === 'Escape' && !$('#modal-root').classList.contains('hidden')) {
     closeModal();
-  }
-  // Enter in the model filter must not submit the channel form.
-  if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-model-search]')) {
-    e.preventDefault();
   }
 });
 

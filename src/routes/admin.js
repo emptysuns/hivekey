@@ -43,6 +43,7 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
       avgLatencyMs: stats.avgLatencyMs(),
       channelCount: store.data.channels.length,
       keyCounts: pool.keyCounts(),
+      problemKeys: pool.problemKeys(),
       history: stats.history(),
     });
   });
@@ -54,15 +55,15 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
 
   router.post('/channels', (req, res) => {
     const ch = pool.createChannel(req.body || {});
-    if (req.body?.keys) pool.addKeys(ch.id, req.body.keys);
-    res.status(201).json(pool.serializeChannel(ch));
+    const imported = req.body?.keys ? pool.addKeys(ch.id, req.body.keys) : null;
+    res.status(201).json({ ...pool.serializeChannel(ch), imported });
   });
 
   router.put('/channels/:id', (req, res) => {
     const ch = pool.updateChannel(req.params.id, req.body || {});
     if (!ch) return res.status(404).json({ error: 'channel not found' });
-    if (req.body?.keys) pool.addKeys(ch.id, req.body.keys);
-    return res.json(pool.serializeChannel(ch));
+    const imported = req.body?.keys ? pool.addKeys(ch.id, req.body.keys) : null;
+    return res.json({ ...pool.serializeChannel(ch), imported });
   });
 
   router.delete('/channels/:id', (req, res) => {
@@ -278,6 +279,7 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
         avgLatencyMs: stats.avgLatencyMs(),
         channelCount: store.data.channels.length,
         keyCounts: pool.keyCounts(),
+        problemKeys: pool.problemKeys(),
         history: stats.history(),
       },
       live: stats.liveList(),

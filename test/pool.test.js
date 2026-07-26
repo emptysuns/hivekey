@@ -207,6 +207,35 @@ test('corrupted data.json is backed up and load() throws instead of wiping it', 
   assert.throws(() => new Store(dir).load(), /"channels" is not an array/);
 });
 
+test('problemKeys flags auto-disabled, failing and high-error-rate keys', () => {
+  const { pool } = ctx;
+  const ch = pool.createChannel({ name: 'c', baseUrl: 'https://x.test' });
+  pool.addKeys(ch.id, 'sk-healthy\nsk-autodisabled\nsk-streak\nsk-errorrate');
+  const [healthy, autoDis, streak, errRate] = pool.keysByChannel.get(ch.id);
+
+  healthy.stats.requests = 100;
+  healthy.stats.success = 99;
+  healthy.stats.failed = 1;
+
+  pool.markError(autoDis, '401 bad key', { hard: true });
+  pool.markError(autoDis, '401 bad key', { hard: true });
+
+  streak.consecutiveFailures = 4;
+
+  errRate.stats.requests = 20;
+  errRate.stats.failed = 12;
+
+  const problems = pool.problemKeys();
+  assert.deepStrictEqual(problems.map((p) => p.reason), ['auto_disabled', 'failing', 'high_error_rate']);
+  assert.ok(!problems.some((p) => p.keyId === healthy.id));
+  assert.ok(problems.every((p) => p.channelName === 'c'));
+  assert.ok(!JSON.stringify(problems).includes('sk-autodisabled'), 'must not leak raw key material');
+
+  // resetting the streaky key clears it from the report
+  pool.resetKey(streak.id);
+  assert.ok(!pool.problemKeys().some((p) => p.keyId === streak.id));
+});
+
 test('serializeKey masks key material by default', () => {
   const { pool } = ctx;
   const ch = pool.createChannel({ name: 'c', baseUrl: 'https://x.test' });

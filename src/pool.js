@@ -373,6 +373,41 @@ class Pool {
     }
   }
 
+  // ---------- health report ----------
+
+  /**
+   * Keys that keep erroring, for the dashboard warning banner:
+   * auto-disabled ones, streaks of consecutive failures, and keys whose
+   * overall error rate is high enough (≥50% over ≥10 requests) to matter.
+   */
+  problemKeys(limit = 30) {
+    const out = [];
+    for (const key of this.keysById.values()) {
+      const st = key.stats || {};
+      let reason = null;
+      if (key.autoDisabled) reason = 'auto_disabled';
+      else if (key.consecutiveFailures >= 3) reason = 'failing';
+      else if ((st.requests || 0) >= 10 && (st.failed || 0) / st.requests >= 0.5) reason = 'high_error_rate';
+      if (!reason) continue;
+      const ch = this.channelsById.get(key.channelId);
+      out.push({
+        keyId: key.id,
+        channelId: key.channelId,
+        channelName: ch ? ch.name : '?',
+        keyMasked: maskKey(key.key),
+        reason,
+        status: this.keyStatus(key),
+        requests: st.requests || 0,
+        failed: st.failed || 0,
+        consecutiveFailures: key.consecutiveFailures || 0,
+        lastError: st.lastError || null,
+      });
+    }
+    const rank = { auto_disabled: 0, failing: 1, high_error_rate: 2 };
+    out.sort((a, b) => rank[a.reason] - rank[b.reason] || b.failed - a.failed);
+    return out.slice(0, limit);
+  }
+
   // ---------- serialization ----------
 
   keyCounts() {
