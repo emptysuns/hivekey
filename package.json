@@ -1,0 +1,29 @@
+{
+  "name": "llm-api-pool",
+  "version": "1.0.0",
+  "description": "Self-hosted LLM API key pool with smart scheduling, automatic retry/failover, proxy support and a real-time web dashboard.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "llm",
+    "openai",
+    "api-pool",
+    "load-balancer",
+    "proxy",
+    "rate-limit",
+    "failover"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "undici": "^6.21.1"
+  }
+}
