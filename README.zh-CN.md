@@ -1,8 +1,8 @@
-# KeySwarm
+# hivekey
 
 [English](README.md) | **简体中文**
 
-自托管的 LLM API Key 池。把某个 OpenAI 兼容接口的所有 API Key 放到一个统一 URL 后面,KeySwarm 会用智能调度算法在这些 Key 之间做负载均衡:遇到 429 或其他错误自动换 Key 重试、按 Key 指数退避冷却、支持出站代理,并提供实时 Web 管理面板。设计思路参考 [new-api](https://github.com/QuantumNous/new-api)。
+自托管的 LLM API Key 池。把某个 OpenAI 兼容接口的所有 API Key 放到一个统一 URL 后面,hivekey 会用智能调度算法在这些 Key 之间做负载均衡:遇到 429 或其他错误自动换 Key 重试、按 Key 指数退避冷却、支持出站代理,并提供实时 Web 管理面板。设计思路参考 [new-api](https://github.com/QuantumNous/new-api)。
 
 ```
 你的应用 ──▶ http://pool:3000/v1  ──▶ 调度器 ──▶ key #17 ──▶ https://api.upstream.com/v1
@@ -27,19 +27,19 @@
 ### Docker
 
 ```bash
-docker run -d --name keyswarm \
+docker run -d --name hivekey \
   -p 3000:3000 \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=change-me-please \
   -v pool-data:/app/data \
-  ghcr.io/emptysuns/keyswarm:latest   # 或本地构建:docker build -t keyswarm .
+  ghcr.io/emptysuns/hivekey:latest   # 或本地构建:docker build -t hivekey .
 ```
 
 ### Docker Compose
 
 ```bash
-git clone https://github.com/emptysuns/keyswarm.git
-cd keyswarm
+git clone https://github.com/emptysuns/hivekey.git
+cd hivekey
 # 编辑 docker-compose.yml(务必修改 ADMIN_PASSWORD!)
 docker compose up -d
 ```
@@ -47,8 +47,8 @@ docker compose up -d
 ### Node.js(≥ 18.17)
 
 ```bash
-git clone https://github.com/emptysuns/keyswarm.git
-cd keyswarm
+git clone https://github.com/emptysuns/hivekey.git
+cd hivekey
 npm ci
 ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me npm start
 ```

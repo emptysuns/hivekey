@@ -1,4 +1,4 @@
-/* keyswarm — admin dashboard (vanilla JS SPA) */
+/* hivekey — admin dashboard (vanilla JS SPA) */
 'use strict';
 
 /* ============================================================

@@ -1,8 +1,8 @@
-# KeySwarm
+# hivekey
 
 **English** | [简体中文](README.zh-CN.md)
 
-A self-hosted LLM API key pool. Put all the API keys of an OpenAI-compatible endpoint behind a single URL, and KeySwarm load-balances requests across them with smart scheduling, automatic retry/failover on 429s and errors, per-key cooldowns, proxy support, and a real-time web dashboard for managing everything. Design inspired by [new-api](https://github.com/QuantumNous/new-api).
+A self-hosted LLM API key pool. Put all the API keys of an OpenAI-compatible endpoint behind a single URL, and hivekey load-balances requests across them with smart scheduling, automatic retry/failover on 429s and errors, per-key cooldowns, proxy support, and a real-time web dashboard for managing everything. Design inspired by [new-api](https://github.com/QuantumNous/new-api).
 
 ```
 your app ──▶ http://pool:3000/v1  ──▶ scheduler ──▶ key #17 ──▶ https://api.upstream.com/v1
@@ -27,19 +27,19 @@ your app ──▶ http://pool:3000/v1  ──▶ scheduler ──▶ key #17 �
 ### Docker
 
 ```bash
-docker run -d --name keyswarm \
+docker run -d --name hivekey \
   -p 3000:3000 \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=change-me-please \
   -v pool-data:/app/data \
-  ghcr.io/emptysuns/keyswarm:latest   # or build locally: docker build -t keyswarm .
+  ghcr.io/emptysuns/hivekey:latest   # or build locally: docker build -t hivekey .
 ```
 
 ### Docker Compose
 
 ```bash
-git clone https://github.com/emptysuns/keyswarm.git
-cd keyswarm
+git clone https://github.com/emptysuns/hivekey.git
+cd hivekey
 # edit docker-compose.yml (set ADMIN_PASSWORD!)
 docker compose up -d
 ```
@@ -47,8 +47,8 @@ docker compose up -d
 ### Node.js (≥ 18.17)
 
 ```bash
-git clone https://github.com/emptysuns/keyswarm.git
-cd keyswarm
+git clone https://github.com/emptysuns/hivekey.git
+cd hivekey
 npm ci
 ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me npm start
 ```

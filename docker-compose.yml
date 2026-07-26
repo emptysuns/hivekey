@@ -1,7 +1,7 @@
 services:
-  keyswarm:
+  hivekey:
     build: .
-    container_name: keyswarm
+    container_name: hivekey
     ports:
       - "3000:3000"
     environment:
