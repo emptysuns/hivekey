@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('fs');
+const log = require('./log');
 const path = require('path');
 
 const STRATEGY_NAMES = [
@@ -172,7 +173,7 @@ class Store {
         this.saveNow();
       } catch (err) {
         // a transient fs error (disk full, volume perms) must not crash the pool
-        console.error(`failed to persist ${this.file}: ${err.message}`);
+        log.error(`failed to persist ${this.file}: ${err.message}`);
       }
     }, 1000);
     this._saveTimer.unref?.();

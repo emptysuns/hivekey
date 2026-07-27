@@ -122,6 +122,8 @@ All server configuration is via environment variables:
 | `OUTBOUND_PROXY` | *(empty)* | Global fallback outbound proxy (`http://host:port`); falls back to `HTTPS_PROXY`/`HTTP_PROXY` |
 | `TRUST_PROXY` | *(off)* | Number of reverse-proxy hops to trust (usually `1` behind nginx/traefik) so login rate limiting sees real client IPs; also enables the `Secure` cookie flag via `X-Forwarded-Proto` |
 | `BODY_LIMIT_BYTES` | `26214400` | Max `/v1` request body size (25 MB) |
+| `LOG_LEVEL` | `info` | Console log level: `error` / `warn` / `info` / `debug` |
+| `LOG_COLOR` | `auto` | ANSI colors: `auto` (TTY only), `always` (use in Docker), `never` |
 
 Runtime behavior (strategy, retry counts, timeouts, cooldowns…) is configured in **Settings** in the dashboard:
 

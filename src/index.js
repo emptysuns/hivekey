@@ -9,6 +9,7 @@ const { Pool } = require('./pool');
 const { Auth } = require('./auth');
 const { createProxyHandler, closeDispatchers } = require('./proxy');
 const { createAdminRouter } = require('./routes/admin');
+const log = require('./log');
 
 function createApp(overrides = {}) {
   const cfg = { ...config, ...overrides };
@@ -111,10 +112,10 @@ function createApp(overrides = {}) {
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   // JSON error handler (body limit, etc.)
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (res.headersSent) return res.destroy();
     const status = err.status || err.statusCode || 500;
+    log.error(`${req.method} ${req.originalUrl || req.url} -> ${status}: ${err.message || 'internal error'}`);
     return res.status(status).json({ error: { message: err.message || 'internal error', type: 'pool_error' } });
   });
 
@@ -139,7 +140,7 @@ function createApp(overrides = {}) {
     try {
       store.saveNow();
     } catch (err) {
-      console.error(`failed to persist on shutdown: ${err.message}`);
+      log.error(`failed to persist on shutdown: ${err.message}`);
     }
     closeDispatchers();
   };
@@ -151,21 +152,20 @@ function main() {
   const { app, auth, shutdown } = createApp();
 
   const server = app.listen(config.port, config.host, () => {
-    console.log(`hivekey listening on http://${config.host}:${config.port}`);
-    console.log(`dashboard:     http://localhost:${config.port}/`);
-    console.log(`llm endpoint:  http://localhost:${config.port}/v1`);
-    console.log(`admin user:    ${auth.adminUsername}`);
+    log.info(`hivekey listening on http://${config.host}:${config.port}`);
+    log.info(`dashboard:     http://localhost:${config.port}/`);
+    log.info(`llm endpoint:  http://localhost:${config.port}/v1`);
+    log.info(`admin user:    ${auth.adminUsername}`);
+    log.info(`log level:     ${log.level}${log.useColor ? ' (color)' : ''}`);
     if (auth.generatedPassword) {
-      console.log('');
-      console.log('  ⚠ ADMIN_PASSWORD is not set. A random password was generated and persisted:');
-      console.log(`  ⚠ admin password: ${auth.adminPassword}`);
-      console.log('  ⚠ Set ADMIN_PASSWORD (and ADMIN_USERNAME) in the environment to override.');
-      console.log('');
+      log.warn('ADMIN_PASSWORD is not set. A random password was generated and persisted:');
+      log.warn(`admin password: ${auth.adminPassword}`);
+      log.warn('Set ADMIN_PASSWORD (and ADMIN_USERNAME) in the environment to override.');
     }
   });
 
   const stop = (signal) => {
-    console.log(`received ${signal}, shutting down`);
+    log.info(`received ${signal}, shutting down`);
     server.close(() => {
       shutdown();
       process.exit(0);
@@ -178,6 +178,8 @@ function main() {
   };
   process.on('SIGINT', () => stop('SIGINT'));
   process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('uncaughtException', (err) => log.error('uncaughtException', err));
+  process.on('unhandledRejection', (err) => log.error('unhandledRejection', err));
 }
 
 if (require.main === module) main();

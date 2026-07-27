@@ -122,6 +122,8 @@ client.models.generate_content(model="gpt-4o", contents="hello")
 | `OUTBOUND_PROXY` | *(空)* | 全局兜底出站代理(`http://host:port`);也会读取 `HTTPS_PROXY`/`HTTP_PROXY` |
 | `TRUST_PROXY` | *(关)* | 信任的反向代理跳数(nginx/traefik 之后通常为 `1`),登录限流才能拿到真实客户端 IP;同时通过 `X-Forwarded-Proto` 启用 cookie 的 `Secure` 标志 |
 | `BODY_LIMIT_BYTES` | `26214400` | `/v1` 请求体大小上限(25 MB) |
+| `LOG_LEVEL` | `info` | 控制台日志等级:`error` / `warn` / `info` / `debug` |
+| `LOG_COLOR` | `auto` | ANSI 颜色:`auto`(仅 TTY)、`always`(Docker 用)、`never` |
 
 运行时行为(调度算法、重试次数、超时、冷却……)在面板的 **Settings** 里配置:
 

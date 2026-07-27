@@ -10,6 +10,7 @@ const {
   createSseParser,
   simulateStream,
 } = require('./adapters');
+const log = require('./log');
 
 const HOP_BY_HOP = new Set([
   'connection',
@@ -303,6 +304,12 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       stats.requestFinished(entry);
       store.recordDaily(entry);
       events.broadcast('request', { phase: 'end', entry });
+      const tag = `${entry.method} ${entry.path} model=${entry.model || '-'} ch=${entry.channelName || '-'} key=${entry.keyMasked || '-'} ${entry.latencyMs}ms #${entry.attempts}`;
+      if (entry.status === 'success') {
+        log.info(`ok  ${tag} ${entry.statusCode}${entry.stream ? ' stream' : ''}`);
+      } else {
+        log.error(`fail ${tag} ${entry.statusCode || ''} ${entry.error || 'error'}`.trim());
+      }
     };
 
     res.on('close', () => {
