@@ -76,6 +76,10 @@ function createMockUpstream() {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: { message: 'invalid api key' } }));
         }
+        if (key === 'no-model-key') {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: { message: 'model not available for this key' } }));
+        }
         if (model === 'always-429') {
           res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '2' });
           return res.end(JSON.stringify({ error: { message: 'rate limited' } }));
@@ -326,6 +330,43 @@ test('retries on 500 with a different key and succeeds', async () => {
   const cooling = keys.json.filter((k) => k.status === 'cooldown');
   assert.strictEqual(cooling.length, 1);
   assert.strictEqual(cooling[0].stats.consecutiveFailures, 1);
+});
+
+test('retries on 404 with a different key without cooling the first key down', async () => {
+  const ch = await api('/api/channels', {
+    method: 'POST',
+    body: {
+      name: 'mock-404-failover',
+      baseUrl: mockBase,
+      models: ['model-404-failover'],
+      keys: 'no-model-key\ngood-key-404',
+    },
+  });
+  await api('/api/settings', {
+    method: 'PUT',
+    body: { strategy: 'round_robin', maxAttempts: 3 },
+  });
+
+  const res = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${poolToken}` },
+    body: JSON.stringify({ model: 'model-404-failover' }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.headers.get('x-pool-attempts'), '2');
+  await res.json();
+
+  const logs = await api('/api/logs?limit=1');
+  const entry = logs.json[0];
+  assert.strictEqual(entry.status, 'success');
+  assert.strictEqual(entry.attempts, 2);
+  assert.strictEqual(entry.retriesDetail.length, 1);
+  const keys = await api(`/api/channels/${ch.json.id}/keys?reveal=1`);
+  const bad = keys.json.find((k) => k.key === 'no-model-key');
+  assert.ok(bad);
+  assert.strictEqual(bad.status, 'active', '404 must not put the key on cooldown');
+  assert.strictEqual(bad.stats.consecutiveFailures || 0, 0);
+  assert.strictEqual(bad.stats.failed, 1);
 });
 
 test('429 is passed through when no other key is available, and cools the key down', async () => {

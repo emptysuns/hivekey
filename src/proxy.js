@@ -466,7 +466,10 @@ function createProxyHandler({ pool, store, stats, events, config }) {
 
       const { statusCode } = upstream;
       const headersLatency = Date.now() - attemptStarted;
-      const retryable = settings.retryOn.includes(statusCode);
+      // 404 is often "this key can't access this model" (NVIDIA NIM etc.), not a
+      // bad request — failover to another key without punishing key health.
+      const keyScopedNotFound = statusCode === 404;
+      const retryable = settings.retryOn.includes(statusCode) || keyScopedNotFound;
       const canRetryMore = attempt < maxAttempts && pool.candidates(model, tried).length > 0;
 
       const markFailureFor = (code, snippet) => {
@@ -481,7 +484,13 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         const snippet = await readSnippet(upstream.body);
         release();
         res.removeListener('close', onClientClose);
-        const message = markFailureFor(statusCode, snippet);
+        let message;
+        if (keyScopedNotFound) {
+          message = upstreamErrorMessage(snippet, `upstream responded ${statusCode}`);
+          pool.markNeutralFailure(key, `${statusCode} ${message}`.slice(0, 300));
+        } else {
+          message = markFailureFor(statusCode, snippet);
+        }
         lastFailure = { statusCode, message };
         retriesDetail.push({ channelName: channel.name, keyMasked: live.keyMasked, statusCode, error: message });
         continue;
