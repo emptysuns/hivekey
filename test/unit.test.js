@@ -107,13 +107,34 @@ test('describeThinking summarizes common effort knobs', () => {
   assert.strictEqual(describeThinking({ thinking: { type: 'disabled' } }), 'off');
   assert.strictEqual(describeThinking({ enable_thinking: true }), 'on');
   assert.strictEqual(describeThinking({ chat_template_kwargs: { enable_thinking: false } }), 'off');
+  // NVIDIA NIM: effort lives inside chat_template_kwargs alongside enable_thinking
+  assert.strictEqual(
+    describeThinking({
+      chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'high' },
+    }),
+    'on effort=high',
+  );
+  assert.strictEqual(
+    describeThinking({
+      chat_template_kwargs: { thinking: true, reasoning_effort: 'max' },
+    }),
+    'on effort=max',
+  );
+  assert.strictEqual(
+    describeThinking({ chat_template_kwargs: { thinking_mode: 'adaptive' } }),
+    'on effort=adaptive',
+  );
   assert.strictEqual(
     describeThinking({ generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }),
-    'off',
+    'off budget=0',
   );
   assert.strictEqual(
     describeThinking({ generation_config: { thinking_config: { thinking_level: 'high' } } }),
-    'on level=high',
+    'on effort=high',
+  );
+  assert.strictEqual(
+    describeThinking({ nvext: { max_thinking_tokens: 512 }, enable_thinking: true }),
+    'on budget=512',
   );
 });
 

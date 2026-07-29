@@ -78,43 +78,58 @@ function sanitizeHeaderValue(v) {
 function describeThinking(body) {
   if (!body || typeof body !== 'object') return null;
 
-  if (body.reasoning_effort != null && body.reasoning_effort !== '') {
-    return `on effort=${body.reasoning_effort}`;
-  }
-  if (body.reasoning && typeof body.reasoning === 'object') {
-    const e = body.reasoning.effort;
-    if (e != null && e !== '') return `on effort=${e}`;
-  }
-  if (body.thinking && typeof body.thinking === 'object') {
-    if (body.thinking.type === 'disabled') return 'off';
-    const budget = body.thinking.budget_tokens ?? body.thinking.budgetTokens;
-    if (body.thinking.type === 'enabled' || budget != null) {
-      return budget != null ? `on budget=${budget}` : 'on';
-    }
-  }
-  if (body.enable_thinking === true) return 'on';
-  if (body.enable_thinking === false) return 'off';
-  const ctk = body.chat_template_kwargs;
-  if (ctk && typeof ctk === 'object' && 'enable_thinking' in ctk) {
-    return ctk.enable_thinking ? 'on' : 'off';
-  }
+  const ctk = body.chat_template_kwargs && typeof body.chat_template_kwargs === 'object'
+    ? body.chat_template_kwargs
+    : null;
+  const reasoning = body.reasoning && typeof body.reasoning === 'object' ? body.reasoning : null;
+  const thinkingObj = body.thinking && typeof body.thinking === 'object' ? body.thinking : null;
   const gc = body.generationConfig || body.generation_config;
-  if (gc && typeof gc === 'object') {
-    const tc = gc.thinkingConfig || gc.thinking_config;
-    if (tc && typeof tc === 'object') {
-      const budget = tc.thinkingBudget ?? tc.thinking_budget;
-      const level = tc.thinkingLevel ?? tc.thinking_level;
-      if (budget === 0) return 'off';
-      if (budget != null) return `on budget=${budget}`;
-      if (level != null && level !== '') return `on level=${level}`;
-      return 'on';
-    }
+  const tc = gc && typeof gc === 'object' ? (gc.thinkingConfig || gc.thinking_config) : null;
+  const nvext = body.nvext && typeof body.nvext === 'object' ? body.nvext : null;
+
+  // effort / mode / level — check nested kwargs too (NVIDIA NIM puts them in chat_template_kwargs)
+  const effort =
+    body.reasoning_effort ??
+    reasoning?.effort ??
+    ctk?.reasoning_effort ??
+    body.thinking_mode ??
+    ctk?.thinking_mode ??
+    body.thinking_level ??
+    tc?.thinkingLevel ??
+    tc?.thinking_level ??
+    null;
+
+  const budget =
+    thinkingObj?.budget_tokens ??
+    thinkingObj?.budgetTokens ??
+    body.thinking_budget ??
+    tc?.thinkingBudget ??
+    tc?.thinking_budget ??
+    nvext?.max_thinking_tokens ??
+    null;
+
+  // on / off
+  let enabled = null;
+  if (thinkingObj?.type === 'disabled') enabled = false;
+  else if (thinkingObj?.type === 'enabled' || (budget != null && budget !== 0)) enabled = true;
+  else if (budget === 0) enabled = false;
+  else if (typeof body.enable_thinking === 'boolean') enabled = body.enable_thinking;
+  else if (ctk && typeof ctk.enable_thinking === 'boolean') enabled = ctk.enable_thinking;
+  else if (ctk && typeof ctk.thinking === 'boolean') enabled = ctk.thinking;
+  else if (typeof body.thinking === 'boolean') enabled = body.thinking;
+  else if (effort != null && effort !== '') {
+    const off = ['off', 'none', 'disabled', '0'].includes(String(effort).toLowerCase());
+    enabled = !off;
+  } else if (tc && typeof tc === 'object') {
+    enabled = true;
   }
-  if (body.thinking_budget != null) return `on budget=${body.thinking_budget}`;
-  if (body.thinking_level != null && body.thinking_level !== '') {
-    return `on level=${body.thinking_level}`;
-  }
-  return null;
+
+  if (enabled == null && (effort == null || effort === '') && budget == null) return null;
+
+  const bits = [enabled === false ? 'off' : 'on'];
+  if (effort != null && effort !== '') bits.push(`effort=${effort}`);
+  if (budget != null && budget !== '') bits.push(`budget=${budget}`);
+  return bits.join(' ');
 }
 
 /** Best-effort usage extraction from JSON bodies and SSE streams. */
