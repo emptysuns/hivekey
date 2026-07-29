@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 
 const { selectCandidate } = require('../src/scheduler');
-const { normalizeBaseUrl, createUsageScanner } = require('../src/proxy');
+const { normalizeBaseUrl, createUsageScanner, describeThinking } = require('../src/proxy');
 const { maskKey, parseRetryAfterMs, signSession, verifySession } = require('../src/util');
 
 function cand(id, { weight = 1, inflight = 0, ewma = 0, requests = 0, success = 0 } = {}) {
@@ -96,6 +96,25 @@ test('usage scanner handles anthropic-style input/output tokens', () => {
   const u = s.result();
   assert.strictEqual(u.promptTokens, 3);
   assert.strictEqual(u.completionTokens, 9);
+});
+
+test('describeThinking summarizes common effort knobs', () => {
+  assert.strictEqual(describeThinking(null), null);
+  assert.strictEqual(describeThinking({}), null);
+  assert.strictEqual(describeThinking({ reasoning_effort: 'high' }), 'on effort=high');
+  assert.strictEqual(describeThinking({ reasoning: { effort: 'low' } }), 'on effort=low');
+  assert.strictEqual(describeThinking({ thinking: { type: 'enabled', budget_tokens: 2048 } }), 'on budget=2048');
+  assert.strictEqual(describeThinking({ thinking: { type: 'disabled' } }), 'off');
+  assert.strictEqual(describeThinking({ enable_thinking: true }), 'on');
+  assert.strictEqual(describeThinking({ chat_template_kwargs: { enable_thinking: false } }), 'off');
+  assert.strictEqual(
+    describeThinking({ generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }),
+    'off',
+  );
+  assert.strictEqual(
+    describeThinking({ generation_config: { thinking_config: { thinking_level: 'high' } } }),
+    'on level=high',
+  );
 });
 
 test('maskKey hides the middle of keys', () => {

@@ -74,6 +74,49 @@ function sanitizeHeaderValue(v) {
   return String(v).replace(/[^\x20-\x7e]/g, '?').slice(0, 200);
 }
 
+/** Summarize thinking/reasoning knobs present on a request body (for logs). */
+function describeThinking(body) {
+  if (!body || typeof body !== 'object') return null;
+
+  if (body.reasoning_effort != null && body.reasoning_effort !== '') {
+    return `on effort=${body.reasoning_effort}`;
+  }
+  if (body.reasoning && typeof body.reasoning === 'object') {
+    const e = body.reasoning.effort;
+    if (e != null && e !== '') return `on effort=${e}`;
+  }
+  if (body.thinking && typeof body.thinking === 'object') {
+    if (body.thinking.type === 'disabled') return 'off';
+    const budget = body.thinking.budget_tokens ?? body.thinking.budgetTokens;
+    if (body.thinking.type === 'enabled' || budget != null) {
+      return budget != null ? `on budget=${budget}` : 'on';
+    }
+  }
+  if (body.enable_thinking === true) return 'on';
+  if (body.enable_thinking === false) return 'off';
+  const ctk = body.chat_template_kwargs;
+  if (ctk && typeof ctk === 'object' && 'enable_thinking' in ctk) {
+    return ctk.enable_thinking ? 'on' : 'off';
+  }
+  const gc = body.generationConfig || body.generation_config;
+  if (gc && typeof gc === 'object') {
+    const tc = gc.thinkingConfig || gc.thinking_config;
+    if (tc && typeof tc === 'object') {
+      const budget = tc.thinkingBudget ?? tc.thinking_budget;
+      const level = tc.thinkingLevel ?? tc.thinking_level;
+      if (budget === 0) return 'off';
+      if (budget != null) return `on budget=${budget}`;
+      if (level != null && level !== '') return `on level=${level}`;
+      return 'on';
+    }
+  }
+  if (body.thinking_budget != null) return `on budget=${body.thinking_budget}`;
+  if (body.thinking_level != null && body.thinking_level !== '') {
+    return `on level=${body.thinking_level}`;
+  }
+  return null;
+}
+
 /** Best-effort usage extraction from JSON bodies and SSE streams. */
 function createUsageScanner(contentType) {
   const usage = { promptTokens: 0, completionTokens: 0, found: false };
@@ -252,6 +295,9 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       }
     }
 
+    // thinking/effort on the body that will be forwarded (post-adapter if any)
+    const thinking = describeThinking(parsedBody);
+
     const id = genId('req');
     const live = {
       id,
@@ -261,6 +307,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       api: adapter ? adapter.name : 'openai',
       model,
       stream: streamRequested,
+      thinking,
       channelId: null,
       channelName: null,
       keyId: null,
@@ -286,6 +333,7 @@ function createProxyHandler({ pool, store, stats, events, config }) {
         api: adapter ? adapter.name : 'openai',
         model,
         stream: streamRequested,
+        thinking,
         channelId: live.channelId,
         channelName: live.channelName,
         keyId: live.keyId,
@@ -304,7 +352,8 @@ function createProxyHandler({ pool, store, stats, events, config }) {
       stats.requestFinished(entry);
       store.recordDaily(entry);
       events.broadcast('request', { phase: 'end', entry });
-      const tag = `${entry.method} ${entry.path} model=${entry.model || '-'} ch=${entry.channelName || '-'} key=${entry.keyMasked || '-'} ${entry.latencyMs}ms #${entry.attempts}`;
+      const thinkTag = entry.thinking ? ` thinking=${entry.thinking}` : ' thinking=-';
+      const tag = `${entry.method} ${entry.path} model=${entry.model || '-'} ch=${entry.channelName || '-'} key=${entry.keyMasked || '-'}${thinkTag} ${entry.latencyMs}ms #${entry.attempts}`;
       if (entry.status === 'success') {
         log.info(`ok  ${tag} ${entry.statusCode}${entry.stream ? ' stream' : ''}`);
       } else {
@@ -649,4 +698,4 @@ async function closeDispatchers() {
   dispatcherCache.clear();
 }
 
-module.exports = { createProxyHandler, normalizeBaseUrl, createUsageScanner, getDispatcher, readSnippet, closeDispatchers };
+module.exports = { createProxyHandler, normalizeBaseUrl, createUsageScanner, describeThinking, getDispatcher, readSnippet, closeDispatchers };
