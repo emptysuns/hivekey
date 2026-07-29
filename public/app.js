@@ -1636,7 +1636,7 @@ function logMatchesFilters(en) {
   if (f.status && en.status !== f.status) return false;
   if (f.q) {
     const q = f.q.toLowerCase();
-    const hay = [en.model, en.path, en.channelName, en.keyMasked, en.error, en.id]
+    const hay = [en.model, en.path, en.channelName, en.keyMasked, en.error, en.id, en.thinking]
       .map((x) => String(x == null ? '' : x).toLowerCase()).join(' ');
     if (hay.indexOf(q) < 0) return false;
   }
@@ -1656,7 +1656,9 @@ function renderLogsTable() {
     let html = '<tr class="row-click' + (expanded ? ' row-expanded' : '') + '" data-log-row="' + esc(en.id) + '">' +
       '<td class="muted small">' + esc(fmtTime(en.ts)) + '</td>' +
       '<td>' + statusBadgeHtml(en) + '</td>' +
-      '<td>' + esc(en.model || '–') + '</td>' +
+      '<td>' + esc(en.model || '–') +
+        (en.thinking ? ' <span class="badge badge-neutral" title="' + esc(t('Thinking')) + '">' + esc(en.thinking) + '</span>' : '') +
+      '</td>' +
       '<td class="mono small">' + esc(truncate(en.path || '', 34)) + '</td>' +
       '<td>' + esc(en.channelName || '–') + '</td>' +
       '<td class="mono">' + esc(en.keyMasked || '–') + '</td>' +
@@ -1677,7 +1679,10 @@ function logDetailHtml(en) {
     esc(en.method || 'POST') + ' ' + esc(en.path || '') + '</span>' +
     (en.api && en.api !== 'openai' ? ' <span class="badge badge-neutral">' + esc(en.api) + '</span>' : '') +
     (en.stream ? ' <span class="badge badge-neutral">' + esc(t('stream')) + '</span>' : '') +
+    (en.thinking ? ' <span class="badge badge-neutral">' + esc(t('Thinking')) + ' ' + esc(en.thinking) + '</span>' : '') +
     ' <span class="muted">· id ' + esc(en.id) + '</span></div>';
+  html += '<div><span class="muted">' + esc(t('Thinking:')) + '</span> ' +
+    esc(en.thinking || t('not set')) + '</div>';
   html += '<div><span class="muted">' + esc(t('Tokens:')) + '</span> ' +
     esc(t('{p} prompt / {c} completion', { p: fmtNum(en.promptTokens || 0), c: fmtNum(en.completionTokens || 0) })) + '</div>';
   if (Number.isFinite(en.ttftMs)) {

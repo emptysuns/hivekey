@@ -315,7 +315,7 @@ function createAdminRouter({ pool, store, stats, events, auth, config }) {
     if (status === 'success' || status === 'error') out = out.filter((l) => l.status === status);
     if (q) {
       out = out.filter((l) =>
-        [l.model, l.path, l.channelName, l.keyMasked, l.error]
+        [l.model, l.path, l.channelName, l.keyMasked, l.error, l.thinking]
           .some((f) => f && String(f).toLowerCase().includes(q)),
       );
     }
